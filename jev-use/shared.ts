@@ -1,0 +1,293 @@
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { jevClient, toolKey, withToolKey } from './key-routing.js';
+import { chooseBoundedWithTypeSafe } from './typescript/jev_adapter.js';
+import { parseWindowState } from './typescript/native.js';
+import { Driver } from './typescript/run.js';
+import { NativeAccessibilitySource } from './typescript/sources.js';
+import { playwrightBrowser } from './playwright-browser.js';
+import { searchContent } from './search-content.js';
+import { searchLocal } from './local-search.js';
+import { probeNetwork } from './network.js';
+import { findFiles, searchStatus } from './find-files.js';
+import { decide } from './decisions.js';
+import { mapFiles, rootPlan } from './file-map.js';
+import { homedir } from 'node:os';
+
+const root = join(import.meta.dirname, '..');
+const bundledDriver = join(root, 'runtime', 'cua-driver.exe');
+const driverExe = existsSync(bundledDriver) ? bundledDriver : join(process.env.LOCALAPPDATA!, 'Programs', 'Cua', 'cua-driver', 'bin', 'cua-driver.exe');
+const driverArgs = ['mcp', '--socket', '\\\\.\\pipe\\cua-driver'];
+const browser = join(root, 'jev-browse', 'bundled', 'mcp.mjs');
+const tool = (name: string, description: string, properties: object, required: string[]) =>
+  ({ name, description, inputSchema: { type: 'object' as const, properties, required, additionalProperties: false } });
+const string = { type: 'string' };
+const steps = { type: 'integer', minimum: 1, maximum: 20 };
+const tools = [
+  tool('jev_select_workflow', 'Ask Jev to select a bounded harness workflow. Returns a recommendation; executes nothing. Supplied request/context go to TypeSafe.', { request: string, context: string }, ['request']),
+  tool('jev_rank_results', 'Rank up to 24 supplied search excerpts with Jev. Returns candidate IDs and comparative probabilities; no filesystem access.', { query: string, candidates: { type: 'array', minItems: 1, maxItems: 24, items: { type: 'object', properties: { id: string, text: string }, required: ['id','text'], additionalProperties: false } } }, ['query','candidates']),
+  tool('jev_classify_failure', 'Classify observed failure evidence with Jev and return a bounded recovery recommendation. Never retries or changes permissions.', { operation: string, evidence: string }, ['operation','evidence']),
+  tool('jev_verify_result', 'Judge whether supplied evidence satisfies the request. Returns satisfied/not_satisfied/uncertain. Does not independently observe state.', { request: string, evidence: string }, ['request','evidence']),
+  tool('search_status', 'Inspect UFFS index readiness, drive coverage, version, memory and broker mode without shell scripts.', {}, []),
+  tool('find_files', 'Find local files/folders quickly through the UFFS NTFS index. Optional query asks Jev to select the best metadata match. Never uses recursive PowerShell. Requires UFFS and its running broker/daemon.', { pattern: string, drive: { type: 'string', default: 'C' }, kind: { type: 'string', enum: ['any','file','folder'], default: 'any' }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, path_filter: string, query: string }, ['pattern']),
+  tool('map_files', 'Map Downloads/Documents (or given roots) to projects: UFFS file list, content samples, Jev picks a project per folder/loose file. Writes map.csv + an interactive treemap.html under out_dir (default ~\\tools\\file-map). action "build" re-analyses everything; "view" only rebuilds the treemap and review page from the last map; "serve" starts a loopback-only server so the review pages save with one click (no dialog) and opens root_plan.html; "root_plan" proposes, as a dry run, which existing project folder each loose file in the Downloads/Documents roots belongs in (contents of existing folders are never touched). Read-only; never moves files. Names and short content excerpts are sent to TypeSafe.', { action: { type: 'string', enum: ['build', 'view', 'root_plan', 'serve'], default: 'build' }, roots: { type: 'array', items: string, maxItems: 5 }, out_dir: string, limit_units: { type: 'integer', minimum: 1 }, open: { type: 'boolean', default: false } }, []),
+  tool('jev_search_content', 'Search local text with ripgrep and let Jev select the best excerpt. Read-only, scoped, bounded search. Requires rg on PATH. Candidate excerpts are sent to TypeSafe.', { root: string, pattern: string, query: string }, ['root', 'pattern', 'query']),
+  tool('search_local', 'Search local file contents without sending excerpts to Jev. Supports large files, bounded output and optional glob or regex.', { root: string, pattern: string, glob: string, regex: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, ['root', 'pattern']),
+  tool('network_probe', 'Inspect local interfaces and optionally probe explicit hosts using DNS, TCP, ping, route tracing, HTTP and TLS. Explicit IPv4 /24-/30 subnet enables ICMP discovery; no reply does not prove absence. system includes Windows IP configuration, routes and neighbors.', { host: string, ports: { type: 'array', maxItems: 100, items: { type: 'integer', minimum: 1, maximum: 65535 } }, timeout_ms: { type: 'integer', minimum: 100, maximum: 10000 }, url: string, subnet: string, system: { type: 'boolean' }, ping: { type: 'boolean' }, trace: { type: 'boolean' }, tls_port: { type: 'integer', minimum: 1, maximum: 65535 } }, []),
+  tool('jev_browse', 'Launch Chrome or Edge and run a bounded Jev task. Supply a terminal visible-text match.', { goal: string, url: string, expect_text: string, max_steps: steps, browser: { type: 'string', enum: ['chrome', 'edge'], default: 'chrome' }, backend: { type: 'string', enum: ['cdp', 'playwright'], default: 'cdp' }, session: string, fields: { type: 'object', additionalProperties: { type: 'string' }, description: 'Exact accessible field labels mapped to caller-supplied values for Playwright.' } }, ['goal', 'url', 'expect_text']),
+  tool('jev_desktop', 'Use Jev and Windows accessibility controls in one window. Optionally launch a packaged app by AUMID. Verify exact accessible name or value.', { goal: string, app: string, launch_aumid: string, window_id: { type: 'integer', minimum: 1 }, expect: string, text: string, max_steps: steps }, ['goal', 'app', 'expect']),
+];
+
+async function warmBrowserEndpoint(profile: string) {
+  try {
+    const [port, socketPath] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).trim().split(/\r?\n/);
+    if (!/^\d{1,5}$/.test(port) || !socketPath?.startsWith('/devtools/browser/')) return '';
+    const origin = 'http://127.0.0.1:' + port;
+    const response = await fetch(origin + '/json/version', { signal: AbortSignal.timeout(700) });
+    if (!response.ok) return '';
+    const info = await response.json();
+    return info.webSocketDebuggerUrl === 'ws://127.0.0.1:' + port + socketPath ? origin : '';
+  } catch {
+    return '';
+  }
+}
+
+async function browserTask(args: object, choice: 'chrome' | 'edge', addUsage: (usage: unknown) => void) {
+  const profile = join(root, choice === 'edge' ? 'EdgeProfile' : 'ChromeProfile');
+  const edge = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.LOCALAPPDATA]
+    .filter((path): path is string => Boolean(path))
+    .map(path => join(path, 'Microsoft', 'Edge', 'Application', 'msedge.exe'))
+    .find(existsSync);
+  const cdpUrl = await warmBrowserEndpoint(profile);
+  if (choice === 'edge' && !edge && !cdpUrl) throw new Error('Microsoft Edge executable was not found');
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', new URL('./browser-usage.mjs', import.meta.url).href, browser], {
+      windowsHide: true,
+      cwd: root,
+      env: { ...process.env, TYPESAFE_API_KEY: toolKey(), JEV_PROFILE: profile, JEV_CDP_URL: cdpUrl, CHROME_PATH: choice === 'edge' ? edge : undefined },
+      stdio: ['pipe', 'pipe', 'ignore', 'ipc'],
+    });
+    const { stdin, stdout } = child;
+    if (!stdin || !stdout) {
+      child.kill();
+      reject(new Error('Browser MCP pipes unavailable'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('Browser task exceeded 120 seconds'));
+    }, 120_000);
+    child.on('error', reject);
+    child.on('message', (message: { usage?: unknown }) => addUsage(message.usage));
+    child.on('close', () => {
+      clearTimeout(timer);
+      reject(new Error('Browser MCP exited before returning a result'));
+    });
+    const rpc = (message: object) => stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+    stdin.on('error', reject);
+    createInterface({ input: stdout }).on('line', (line) => {
+      try {
+        const message = JSON.parse(line);
+        if (message.id === 1) {
+          rpc({ method: 'notifications/initialized' });
+          rpc({ id: 2, method: 'tools/call', params: { name: 'jev_browse', arguments: args } });
+        }
+        if (message.id === 2) {
+          resolve(message.result?.content?.[0]?.text ?? 'Browser MCP returned no result');
+          stdin.end();
+          if (child.connected) child.disconnect();
+        }
+      } catch (error) {
+        child.kill();
+        reject(error);
+      }
+    });
+    rpc({ id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'shared-jev', version: '1.0.0' } } });
+  });
+}
+
+async function desktopTask(goal: string, app: string, expect: string, text: string | undefined, limit: number, addUsage: (usage: unknown) => void, windowId?: number, launchAumid?: string) {
+  const client = new Client({ name: 'shared-jev', version: '1.0.0' });
+  const transport = new StdioClientTransport({ command: driverExe, args: driverArgs, stderr: 'ignore' });
+  const trace: string[] = [];
+  let calls = 0;
+  const started = performance.now();
+  const result = (status: string) => JSON.stringify({ status, calls, elapsed_ms: Math.round(performance.now() - started), trace });
+  try {
+    await client.connect(transport);
+    const driver = new Driver(client, 'shared-jev-' + randomUUID());
+    const launched = launchAumid ? await driver.call('launch_app', { aumid: launchAumid }) : undefined;
+    const windows = launched
+      ? (launched.windows ?? []).map((w: any) => ({ ...w, pid: w.pid ?? launched.pid }))
+      : (await driver.call('list_windows', {})).windows ?? [];
+    const matching = windows.filter((w: any) => !w.minimized && w.is_on_screen &&
+      (windowId === undefined || w.window_id === windowId) &&
+      [w.title, w.app_name].some(v => String(v).toLowerCase() === app.toLowerCase()));
+    if (matching.length !== 1) return result('Target must match exactly one visible window title or executable');
+    const { pid, window_id } = matching[0];
+    const jev = jevClient({ timeout: 8_000, retry: { maxRetries: 0 }, logLevel: 'off' });
+    const deadline = performance.now() + 45_000;
+    const words = new Set(goal.toLowerCase().match(/[a-z0-9]+/g));
+    for (let step = 0; step <= limit; step++) {
+      const state = await driver.call('get_window_state', { pid, window_id, full_output: true, include_accessibility_tree: true, include_screenshot: false });
+      const observation = parseWindowState(state, pid, window_id);
+      if (observation.elements.some((item: any) => [item.name, item.label, item.value].includes(expect))) return result('verified');
+      if (step === limit) return result('step limit');
+      if (performance.now() > deadline) return result('time limit');
+      const source = NativeAccessibilitySource.fromObservation(observation, 'windows');
+      const matchesGoal = (label: string) => label.toLowerCase().split(/\W+/).some(word => words.has(word));
+      const candidates = source.controls.filter(c => c.risk.size === 0)
+        .filter(c => c.roleClass !== 'text_input' || text !== undefined)
+        .sort((a, b) => Number(matchesGoal(b.label)) - Number(matchesGoal(a.label)))
+        .slice(0, 24).map((c, i) => c.roleClass === 'text_input'
+          ? source.typeText(source.control(c), text!, 'a' + i, 'Enter supplied text in ' + c.label)
+          : source.click(source.control(c), 'a' + i, 'Click ' + c.label));
+      if (!candidates.length) return result('No eligible accessibility actions');
+      const criteria = Object.fromEntries(candidates.map(c => [c.id, c.description]));
+      criteria.abstain = 'No offered action advances the goal';
+      calls++;
+      const { selectedId, usage } = await chooseBoundedWithTypeSafe(jev, goal, { prior_actions: trace }, criteria);
+      addUsage(usage);
+      const action = candidates.find(c => c.id === selectedId);
+      if (!action?.tool) return result('abstained');
+      await driver.call(action.tool, action.arguments);
+      trace.push(action.description);
+    }
+  } catch (error) {
+    return result(error instanceof Error ? error.name + ('code' in error ? ' ' + error.code : '') : 'error');
+  } finally {
+    await transport.close();
+  }
+  return result('step limit');
+}
+
+const server = new Server({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} } });
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+let busy = false;
+server.setRequestHandler(CallToolRequestSchema, async ({ params }) => withToolKey(params.name, async () => {
+  const id = randomUUID();
+  const started = Date.now();
+  const monitored = tools.some(tool => tool.name === params.name) && !(params.name === 'search_status' && process.env.HARNESS_MONITOR_OBSERVATION === '1');
+  let inputTokens = 0, outputTokens = 0, usageResponses = 0;
+  const addUsage = (value: unknown) => {
+    const usage = value as { input_tokens?: number; output_tokens?: number } | undefined;
+    if (!usage || typeof usage.input_tokens !== 'number' || typeof usage.output_tokens !== 'number' ||
+        !Number.isSafeInteger(usage.input_tokens) || !Number.isSafeInteger(usage.output_tokens) ||
+        usage.input_tokens < 0 || usage.output_tokens < 0) return;
+    inputTokens += usage.input_tokens;
+    outputTokens += usage.output_tokens;
+    usageResponses++;
+  };
+  const usageMetrics = (decisions?: number) => usageResponses || decisions === 0 ? {
+    inputTokens, outputTokens, usageResponses,
+    estimatedJevUsd: inputTokens * 0.042 / 1_000_000,
+    usagePartial: decisions === undefined || decisions > usageResponses,
+  } : {};
+  const record = (details: object) => {
+    if (!monitored) return;
+    try {
+      appendFileSync(join(root, 'runs.jsonl'), JSON.stringify({ id, tool: params.name, at: Date.now(), ...details }) + '\n');
+    } catch {
+      console.error('Could not write SharedJev monitoring event');
+    }
+  };
+  record({ status: 'running' });
+  try {
+    const args = params.arguments ?? {};
+    const required = (key: string) => {
+      const value = args[key];
+      if (typeof value !== 'string' || !value.trim() || value.length > 2000) throw new Error('Invalid ' + key);
+      return value;
+    };
+    const limit = args.max_steps ?? 10;
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid max_steps');
+    const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result'].includes(params.name);
+    const goal = decisionTool || ['jev_search_content', 'search_local', 'network_probe', 'find_files', 'search_status', 'map_files'].includes(params.name) ? '' : required('goal');
+    let output: string;
+    if (decisionTool) {
+      output = await decide(params.name, args, addUsage);
+    } else if (params.name === 'jev_browse') {
+      const url = new URL(required('url'));
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use an HTTP(S) URL without credentials');
+      const escaped = required('expect_text').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const choice = args.browser ?? 'chrome';
+      if (choice !== 'chrome' && choice !== 'edge') throw new Error('Invalid browser; use chrome or edge');
+      const backend = args.backend ?? 'cdp';
+      if (backend !== 'cdp' && backend !== 'playwright') throw new Error('Invalid backend');
+      const session = args.session === undefined ? 'shared' : required('session');
+      if (!/^[a-zA-Z0-9_-]{1,40}$/.test(session)) throw new Error('Invalid session');
+      const fields = args.fields ?? {};
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.entries(fields).some(([key, value]) => !key || typeof value !== 'string' || value.length > 2000) || Object.keys(fields).length > 20) throw new Error('Invalid fields');
+      output = backend === 'playwright'
+        ? await playwrightBrowser({ goal, url: url.href, expect: required('expect_text'), browser: choice, session, fields: fields as Record<string, string>, maxSteps: limit }, addUsage)
+        : await browserTask({ goal, url: url.href, expect: { text_match: escaped }, max_steps: limit, stop_at_challenge: true }, choice, addUsage);
+    } else if (params.name === 'search_status') {
+      output = await searchStatus();
+    } else if (params.name === 'find_files') {
+      const drive = args.drive ?? 'C';
+      const kind = args.kind ?? 'any';
+      const count = args.limit ?? 20;
+      if (typeof drive !== 'string' || !/^[A-Za-z]$/.test(drive)) throw new Error('drive must be one letter');
+      if (kind !== 'any' && kind !== 'file' && kind !== 'folder') throw new Error('Invalid kind');
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > 100) throw new Error('Invalid limit');
+      output = await findFiles({ pattern: required('pattern'), drive, kind, limit: count, pathFilter: args.path_filter === undefined ? undefined : required('path_filter'), query: args.query === undefined ? undefined : required('query') }, addUsage);
+    } else if (params.name === 'map_files') {
+      const action = args.action ?? 'build';
+      if (action !== 'build' && action !== 'view' && action !== 'root_plan' && action !== 'serve') throw new Error('Invalid action');
+      const roots = args.roots ?? [join(homedir(), 'Downloads'), join(homedir(), 'Documents')];
+      if (!Array.isArray(roots) || roots.length > 5 || roots.some((r: unknown) => typeof r !== 'string' || !/^[A-Za-z]:\\/.test(r))) throw new Error('roots must be absolute Windows paths');
+      const limitUnits = args.limit_units;
+      if (limitUnits !== undefined && (typeof limitUnits !== 'number' || !Number.isInteger(limitUnits) || limitUnits < 1)) throw new Error('Invalid limit_units');
+      const outDir = args.out_dir === undefined ? join(homedir(), 'tools', 'file-map') : required('out_dir');
+      if (action === 'serve') { // saves from the pages go to disk with one click; page opens at http://127.0.0.1:8766
+        const page = args.open === false ? '' : 'root_plan.html';
+        spawn(process.execPath, [join(import.meta.dirname, 'file-map-serve.mjs'), outDir, '8766'], { windowsHide: true, detached: true, stdio: 'ignore' }).unref(); // a second copy exits on EADDRINUSE
+        if (page) spawn('cmd.exe', ['/c', 'start', '', 'http://127.0.0.1:8766/' + page], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+        output = JSON.stringify({ status: 'done', action: 'serve', url: 'http://127.0.0.1:8766/', pages: ['root_plan.html', 'review.html', 'treemap.html'], steps: 0 });
+      } else output = action === 'root_plan'
+        ? await rootPlan({ roots, outDir, limit: limitUnits, open: args.open === true }, addUsage)
+        : await mapFiles({ action, roots, outDir, limitUnits, open: args.open === true }, addUsage);
+    } else if (params.name === 'jev_search_content') {
+      output = await searchContent(required('root'), required('pattern'), required('query'), addUsage);
+    } else if (params.name === 'search_local') {
+      if (args.regex !== undefined && typeof args.regex !== 'boolean') throw new Error('Invalid regex');
+      output = JSON.stringify(await searchLocal({ root: required('root'), pattern: required('pattern'), glob: args.glob === undefined ? undefined : required('glob'), regex: args.regex as boolean | undefined, limit: args.limit as number | undefined }));
+    } else if (params.name === 'network_probe') {
+      if (args.ports !== undefined && !Array.isArray(args.ports)) throw new Error('Invalid ports');
+      for (const key of ['system', 'ping', 'trace']) if (args[key] !== undefined && typeof args[key] !== 'boolean') throw new Error('Invalid ' + key);
+      output = JSON.stringify(await probeNetwork({ host: args.host === undefined ? undefined : required('host'), ports: args.ports as number[] | undefined, timeout_ms: args.timeout_ms as number | undefined, url: args.url === undefined ? undefined : required('url'), subnet: args.subnet === undefined ? undefined : required('subnet'), system: args.system as boolean | undefined, ping: args.ping as boolean | undefined, trace: args.trace as boolean | undefined, tls_port: args.tls_port as number | undefined }));
+    } else if (params.name === 'jev_desktop') {
+      if (busy) throw new Error('Desktop task already running');
+      busy = true;
+      try {
+        const windowId = args.window_id;
+        if (windowId !== undefined && (typeof windowId !== 'number' || !Number.isSafeInteger(windowId) || windowId < 1)) throw new Error('Invalid window_id');
+        const aumid = args.launch_aumid === undefined ? undefined : required('launch_aumid');
+        if (aumid && (!/^[\w.-]+![\w.-]+$/.test(aumid) || windowId !== undefined)) throw new Error('Use a packaged app AUMID without window_id');
+        output = await desktopTask(goal, required('app'), required('expect'), args.text === undefined ? undefined : required('text'), limit, addUsage, windowId, aumid);
+      } finally {
+        busy = false;
+      }
+    } else throw new Error('Unknown tool');
+    let metrics;
+    try { metrics = JSON.parse(output); } catch { metrics = {}; }
+    const status = metrics.status === 'done' || metrics.status === 'verified' || (params.name === 'search_status' && metrics.status === 'idle') ? 'passed'
+      : metrics.status && metrics.status !== 'error' ? 'blocked' : 'error';
+    const decisions = metrics.decisions ?? metrics.calls;
+    record({ status, ms: Date.now() - started, decisions: decisions ?? null, steps: metrics.steps ?? metrics.trace?.length ?? null, backend: metrics.backend ?? null, session: metrics.session ?? null, ...usageMetrics(decisions) });
+    return { content: [{ type: 'text', text: output }] };
+  } catch (error) {
+    record({ status: 'error', ms: Date.now() - started, ...usageMetrics() });
+    return { isError: true, content: [{ type: 'text', text: String(error) }] };
+  }
+}));
+await server.connect(new StdioServerTransport());

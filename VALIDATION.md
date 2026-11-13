@@ -1,0 +1,75 @@
+# Validation and acceptance
+
+## Current operating upgrade — 2026-11-13
+
+Tested on the owner's Windows11 x64 laptop. This is not clean teammate-machine acceptance.
+
+| Check | Observed result |
+|---|---|
+| PowerShell5.1 managed start | Hidden long-running task host starts the HTTP server |
+| Duplicate launch | Start reuses the current PID |
+| Intentional stop | Owned host/server stop without immediate recovery |
+| Unexpected server exit | Controlled process kill recovered in5.1s; repeated twice |
+| Browser launch suppression | Per-logon marker unchanged across recovery |
+| Task ownership | SharedHarness-Monitor remains Running while the host waits for Node |
+| UI desktop/mobile |1600×1100 and390×844, no horizontal document overflow |
+| Themes | Light/dark, accent change and collapsed/expanded navigation passed |
+| Recent runs | Internal scroll, sticky filters, sorting controls,10/20/50 pagination and readable details |
+| Filter checks | Status, duration, text and clear/reset tested; per-column controls present |
+| Capabilities | Current ten-tool catalog, categories/search and readable parameter table |
+| Runtime health | Six named component panels; no raw JSON; idle search and unverified provider states distinct |
+| Disconnect | Injected runs503 displayed reconnect state; restored connection recovered |
+| HTTP boundary | POST403 and unknown asset404; loopback Host validation retained |
+| No raw product panels | No preformatted JSON/schema dump on overview, tool, health or usage views |
+| Reference/unit suite |114 tests passed; includes latency percentile interpolation test |
+| Server/UI TypeScript | Passed |
+| PowerShell parser | Monitor, runtime inspector, skill installer and Setup passed |
+| Skill validation | Official quick_validate.py passed; installed for both local agents |
+| Mechanical UI detector | No findings |
+
+Screenshots in docs/screenshots are actual rendered captures and are linked from README with relative URLs. They contain recorded tool metadata only. The browser plugin was unavailable; installed Playwright/Chrome performed rendered QA. Supplied before-state references are archived and indexed in GitLab root/ui-reference-images.
+
+### Recovery finding and correction
+
+The original monitor was absent after an overnight reboot because it had only a foreground launch and no sign-in task. The first source fix added sign-in startup. In this upgrade a controlled crash showed that Task Scheduler's configured failure retry alone did not recover within90s. That setting is not treated as proof of recovery.
+
+The verified implementation uses the existing hidden PowerShell host to wait for Node to exit, then restart after3s, up to999 exits. No extra watcher process was added. Stop terminates the owned host/server. Task Scheduler owns the host at sign-in; the default browser opens once per boot/logon/session marker, not after every server recovery. Two controlled server kills each recovered in5.1s. No actual reboot or crash of the host itself was performed; availability remains bounded by Windows, user sign-in and the retry limit.
+
+### Observability scope
+
+The monitor reads a256KiB metadata tail, up to500 calls. UI polls calls every2s; read-only component observations are cached30s. Internal health status probes suppress their own agent-run events. Explicit agent status calls are still recorded. Earlier events that came from the old monitor cannot be retroactively identified and are retained rather than guessed away.
+
+Health distinguishes server reachability, managed startup, Cua daemon status, installed browsers/dedicated CDP observations, UFFS/broker state, Jev credential enrollment and global MCP registration. It does not perform a paid Jev request, UI action or authenticated agent task. Unknown measurements are not reported as zero. The usage estimate is not a billing statement.
+
+## Established executor baseline
+
+These results are historical and were not rerun merely for a UI change:
+
+| Synthetic Jev decision fixture (2026-11-12) | Result | MCP elapsed | API requests |
+|---|---|---:|---:|
+| Folder-name request → file_lookup | Pass |706ms|1|
+| Invoice excerpt over photo | Pass |389ms|1|
+| Expired-session401 classification | Pass |270ms|1|
+| Calculator2+2 evidence accepted | Pass |334ms|1|
+| Login screen does not prove saved invoice | not_satisfied |343ms|1|
+
+Model was jev-1.14.0. Initial missing shared candidate/category context was fixed and regression-tested. Exact model probabilities are not asserted. Browser form actions, Chrome/Edge auto-launch, Calculator action and named Playwright warm reuse passed in earlier probes; see the corresponding GBrain records. They do not prove sign-in persistence or arbitrary app capability.
+
+## Release acceptance
+
+For each deployment: build from the merged source, verify extraction using bundled Node without global Node/npm, verify required assets/skills/guides and runtime hashes, exclude private state, upload ZIP/checksum, then compare the registry SHA256/size. The GitLab pipeline and release records are authoritative for publication status; do not infer them from a local file.
+
+## Source setup reliability — 2026-11-13
+
+An isolated source worktree restored its dependencies in staging, completed the package check, and then reused its recorded lockfile on a second install. The Windows install-safety test checks that unverified existing dependencies are preserved and that a matching lock is reused. The active installation and its monitor task were not replaced. This does not establish a fresh-machine or post-reboot acceptance result; a release ZIP must still be built and verified from merged source.
+
+The owner authorized GitHub Nexus publication on 13 November 2026. GitLab remains the development and CI upstream; README screenshots use relative links on both hosts.
+
+## Remaining boundaries
+
+- Clean-machine installation/elevation, user-specific permissions, real authenticated Codex/Claude task invocation and lab-app signed-in persistence need destination acceptance.
+- Native/legacy-CDP cross-agent arbitration is incomplete; serialize those requests. Playwright named-session locks provide a separate bounded contention check.
+- Desktop controller requires usable accessibility controls. No integrated visual fallback or general plan/recovery executor is shipped.
+- Jev outcome checking judges supplied evidence; it does not independently inspect an application.
+- UFFS metadata and bounded text retrieval are not exhaustive content search or PDF/Office/OCR extraction.
+- Source changes were validated without upgrading third-party engines. Playwright CLI's pinned alpha dependency remains disclosed.

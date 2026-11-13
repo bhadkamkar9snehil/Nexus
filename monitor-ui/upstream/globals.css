@@ -1,0 +1,212 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* One palette: neutral graphite + ONE accent (--brand, set from Settings). Every accent in the UI is derived from it:
+   the data signal, soft tints, success and the focus ring. Primary actions are the contrast pill (foreground on background). */
+:root {
+  --brand: #4ceea8;
+  --background: oklch(0.975 0 0);
+  --foreground: oklch(0.2 0 0);
+  --canvas: oklch(0.945 0 0);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.965 0 0);
+  --surface-3: oklch(0.925 0 0);
+  --muted-foreground: oklch(0.42 0 0);
+  --subtle-foreground: oklch(0.52 0 0);
+  --border: oklch(0.9 0 0);
+  --border-strong: oklch(0.82 0 0);
+  --signal: oklch(from var(--brand) 0.5 0.12 h);
+  --signal-soft: oklch(from var(--brand) 0.95 0.04 h);
+  --signal-muted: oklch(from var(--brand) 0.8 0.07 h);
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --primary-soft: var(--signal-soft);
+  --primary-soft-foreground: var(--signal);
+  --ring: color-mix(in oklch, var(--signal) 60%, transparent);
+  --success: var(--signal);
+  --success-soft: var(--signal-soft);
+  --warning: oklch(0.52 0.13 60);
+  --warning-soft: oklch(0.95 0.05 85);
+  --info: oklch(0.5 0.05 250);
+  --info-soft: oklch(0.95 0.015 250);
+  --destructive: oklch(0.57 0.2 25);
+  --destructive-soft: oklch(0.95 0.03 25);
+  --shadow-color: 0 0% 0%;
+  --radius: 0.625rem;
+}
+
+.dark {
+  /* Graphite, sampled from the reference: page #212121, card shell #131313, inset body #1c1c1c. */
+  --background: oklch(0.235 0 0);
+  --foreground: oklch(0.96 0 0);
+  --canvas: oklch(0.18 0 0);
+  --surface: oklch(0.215 0 0);
+  --surface-2: oklch(0.25 0 0);
+  --surface-3: oklch(0.29 0 0);
+  --muted-foreground: oklch(0.74 0 0);
+  --subtle-foreground: oklch(0.64 0 0);
+  --border: oklch(0.275 0 0);
+  --border-strong: oklch(0.36 0 0);
+  --signal: oklch(from var(--brand) 0.86 0.15 h);
+  --signal-soft: oklch(from var(--brand) 0.3 0.055 h);
+  --signal-muted: oklch(from var(--brand) 0.52 0.09 h);
+  --warning: oklch(0.83 0.13 80);
+  --warning-soft: oklch(0.3 0.05 75);
+  --info: oklch(0.8 0.04 250);
+  --info-soft: oklch(0.29 0.02 250);
+  --destructive: oklch(0.7 0.17 25);
+  --destructive-soft: oklch(0.29 0.07 25);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-canvas: var(--canvas);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-signal-muted: var(--signal-muted);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.25rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5rem;
+  --text-title: 1.0625rem;
+  --text-title--line-height: 1.5rem;
+  --text-heading: 1.375rem;
+  --text-heading--line-height: 1.75rem;
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.125rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --shadow-pop: 0 1px 2px hsl(var(--shadow-color) / 0.06), 0 8px 24px -6px hsl(var(--shadow-color) / 0.16);
+  --shadow-lift: 0 1px 2px hsl(var(--shadow-color) / 0.05), 0 2px 6px -2px hsl(var(--shadow-color) / 0.08);
+  --animate-rise: rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade: fade 160ms ease-out;
+  --animate-caret: caret 1s steps(2) infinite;
+  --animate-flow: flow 0.9s linear infinite;
+  --animate-beacon: beacon 1.6s ease-out infinite;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes flow {
+    to { stroke-dashoffset: -16; }
+  }
+  @keyframes beacon {
+    0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--signal) 55%, transparent); }
+    100% { box-shadow: 0 0 0 10px transparent; }
+  }
+  @keyframes caret {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--primary-soft);
+  color: var(--foreground);
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+textarea,
+input {
+  caret-color: var(--primary);
+}
+
+/* Canvas for diagrams: a quiet dot grid, as on a whiteboard. */
+.dot-grid {
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+
+/* Remainder of a segmented bar (ties, pending, unknown). */
+.hatch {
+  background-image: repeating-linear-gradient(-45deg, var(--border-strong) 0 2px, transparent 2px 5px);
+}
+
+/* Collapsed empty board columns label themselves sideways. */
+@utility vertical-text {
+  writing-mode: vertical-rl;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 10px; height: 10px; }
+.scrollbar-thin::-webkit-scrollbar-button { display: none; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border-strong); border: 3px solid transparent; border-radius: 9999px; background-clip: content-box; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: var(--subtle-foreground); }
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

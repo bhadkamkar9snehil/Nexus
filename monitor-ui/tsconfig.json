@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx",
+    "strict": true, "skipLibCheck": true, "noEmit": true, "baseUrl": ".",
+    "paths": {
+      "@/lib/utils": ["./utils.ts"],
+      "react": ["../jev-use/node_modules/@types/react/index.d.ts"],
+      "react/*": ["../jev-use/node_modules/@types/react/*"],
+      "react-dom/*": ["../jev-use/node_modules/@types/react-dom/*"],
+      "*": ["../jev-use/node_modules/*"]
+    }
+  },
+  "include": ["*.tsx", "*.ts", "upstream/viz.tsx", "upstream/button.tsx"]
+}

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>File Map Review</title>
+<style>
+:root{--bg:#0f1115;--fg:#e6e8ec;--mut:#8b93a1;--card:#171a21;--line:#262b36;--acc:#4f8cff;--ok:#3ddc97;--warn:#ff6b6b}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--fg:#1b1e24;--mut:#5d6573;--card:#fff;--line:#dfe3ea}}
+html,body{height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.4 system-ui,sans-serif;display:flex;flex-direction:column}
+header{padding:10px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line)}
+input,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;font-size:17px}
+button{cursor:pointer}button.p{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.on{border-color:var(--acc);color:var(--acc)}button:disabled{opacity:.4;cursor:default}
+main{flex:1;display:grid;grid-template-columns:1.2fr 1fr;min-height:0}
+section{overflow:auto;padding:8px 12px}#tree{border-left:1px solid var(--line)}
+h2{margin:6px 4px;font-size:15px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.fr{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid transparent;border-radius:10px;cursor:grab;user-select:none}
+.fr:hover{background:var(--card)}.fr.sel{background:rgba(79,140,255,.18);border-color:var(--acc)}
+.fi{flex:1;min-width:0}.fi b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fi small{color:var(--mut);font-size:15px}
+.cf{font-variant-numeric:tabular-nums;color:var(--mut);font-size:15px}.cf.low{color:var(--warn)}
+.dt{padding:3px 10px;border-radius:999px;border:1px solid var(--line);font-size:15px;white-space:nowrap;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.dt.draft{background:rgba(79,140,255,.2);border-color:var(--acc)}.dt.saved{background:rgba(61,220,151,.18);border-color:var(--ok)}
+.fr input{width:22px;height:22px;flex:none}
+.nd{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;border:2px dashed transparent;cursor:pointer}
+.nd:hover{background:var(--card)}.nd.on{background:rgba(79,140,255,.18)}.nd.over{border-color:var(--acc);background:rgba(79,140,255,.28)}
+.nd .tw{width:20px;text-align:center;color:var(--mut)}.nd .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nd.dir .nm{color:var(--mut);font-weight:600}
+.nd .ct{color:var(--mut);font-size:15px;font-variant-numeric:tabular-nums}
+.nd .as{display:none;padding:1px 10px}.hasSel .nd.drop:hover .as{display:inline-block}
+.nd.special .nm{font-weight:700}
+#msg{color:var(--mut);font-size:16px}
+</style></head><body>
+<header>
+<button id="mr" class="on">Needs review</button><button id="ma">All</button>
+<label>below <input id="th" type="number" min="0" max="1" step="0.1" value="0.6" style="width:70px"></label>
+<input id="q" placeholder="search files" style="width:200px">
+<span id="msg"></span><span style="flex:1"></span>
+<button id="acc">Accept proposal for selected</button>
+<button id="un">Undo</button>
+<button id="sv" class="p">Save decisions (0)</button>
+</header>
+<main>
+<section id="files"></section>
+<section id="tree" class="">
+<input id="tq" placeholder="find a folder" style="width:100%;box-sizing:border-box;margin-bottom:6px">
+<div id="nodes"></div>
+</section>
+</main>
+<script>
+const KEY='fm-dec',OUT='overrides.json';
+const UNITS=__UNITS__,PROJECTS=__PROJECTS__,DONE=__DONE__;
+let dec={},saved={},sel=new Set(),handle=null,mode='review',filterDest=null,limit=300,view=[],last=-1,hist=[];
+const open=new Set(['Documents','Documents\\Office']);
+try{dec=JSON.parse(localStorage.getItem(KEY)||'{}');saved=JSON.parse(localStorage.getItem(KEY+'-saved')||'{}')}catch{}
+Object.assign(saved,DONE);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=b=>b>=2**30?(b/2**30).toFixed(2)+' GB':b>=2**20?(b/2**20).toFixed(1)+' MB':(b/1024).toFixed(0)+' KB';
+const keep=()=>{try{localStorage.setItem(KEY,JSON.stringify(dec));localStorage.setItem(KEY+'-saved',JSON.stringify(saved))}catch{}};
+const choiceOf=u=>dec[u.unit]??saved[u.unit]??u.project;
+const stateOf=u=>dec[u.unit]!==undefined?'draft':saved[u.unit]!==undefined?'saved':'';
+const nice=d=>d==='NEW'?'NEW folder':d==='LEAVE'?'LEAVE as is':d.split('\\').pop();
+
+function visible(){const t=+$('th').value,q=$('q').value.toLowerCase();
+  return UNITS.filter(u=>{
+    if(filterDest!==null&&choiceOf(u)!==filterDest)return false;
+    if(q&&!(u.unit+' '+u.names.join(' ')).toLowerCase().includes(q))return false;
+    if(filterDest!==null||mode==='all')return true;
+    return stateOf(u)==='draft'||(!stateOf(u)&&u.conf<t)}) }
+
+function tree(){const root={k:{}};
+  PROJECTS.forEach(p=>{if(p==='NEW'||p==='LEAVE')return;let n=root;const parts=p.split('\\');parts.forEach((x,i)=>{n=n.k[x]??={k:{}};if(i===parts.length-1)n.dest=p})});return root}
+const T=tree();
+function count(n,counts){let c=n.dest!==undefined?(counts[n.dest]||0):0;for(const k in n.k)c+=count(n.k[k],counts);n.total=c;return c}
+function nodeHtml(name,n,path,depth,q){
+  const kids=Object.keys(n.k).sort((a,b)=>a.localeCompare(b));
+  const self=q&&name.toLowerCase().includes(q);
+  const sub=kids.map(k=>nodeHtml(k,n.k[k],path+'\\'+k,depth+1,q)).join('');
+  if(q&&!self&&!sub)return '';
+  const isOpen=open.has(path)||(q&&sub);
+  const d=n.dest;
+  return `<div class="nd${d!==undefined?' drop':' dir'}${filterDest===d&&d!==undefined?' on':''}" data-d="${d!==undefined?esc(d):''}" data-p="${esc(path)}" style="margin-left:${depth*16}px"><span class="tw">${kids.length?(isOpen?'▾':'▸'):'📁'}</span><span class="nm" title="${esc(path)}">${esc(name)}</span><span class="ct">${n.total||''}</span>${d!==undefined?`<button class="as" data-a="${esc(d)}">← here</button>`:''}</div>`+(isOpen?sub:'');
+}
+function special(d,label,c){return `<div class="nd drop special${filterDest===d?' on':''}" data-d="${d}"><span class="tw">${d==='NEW'?'＋':'⏸'}</span><span class="nm">${label}</span><span class="ct">${c[d]||''}</span><button class="as" data-a="${d}">← here</button></div>`}
+
+function draw(){
+  const counts={};UNITS.forEach(u=>{const c=choiceOf(u);counts[c]=(counts[c]||0)+(u.n||1)});count(T,counts);
+  view=visible();
+  $('files').innerHTML='<h2>'+(filterDest!==null?'In '+esc(nice(filterDest))+' (click it again to clear)':mode==='all'?'All files':'Needs your review')+' · '+view.length.toLocaleString()+'</h2>'+
+    view.slice(0,limit).map((u,i)=>{const p=u.unit.split('\\'),st=stateOf(u),c=choiceOf(u);
+      return `<div class="fr${sel.has(u.unit)?' sel':''}" draggable="true" data-i="${i}"><input type="checkbox" tabindex="-1"${sel.has(u.unit)?' checked':''}><div class="fi"><b title="${esc(u.unit)}">${esc(p[p.length-1])}</b><small>${esc(p.slice(0,-1).join('\\'))} · ${fmt(u.bytes)}${u.n>1?' · '+u.n.toLocaleString()+' files':''}</small></div><span class="cf${u.conf<.6?' low':''}">${u.conf.toFixed(2)}</span><span class="dt ${st}" title="${esc(c)}">${st==='saved'?'✓ ':st==='draft'?'→ ':''}${esc(nice(c))}</span></div>`}).join('')+
+    (view.length>limit?`<button id="more" style="margin:8px">Show ${Math.min(300,view.length-limit)} more</button>`:'');
+  const q=$('tq').value.toLowerCase();
+  $('nodes').innerHTML=special('NEW','NEW — needs a new folder',counts)+special('LEAVE','LEAVE — not project material',counts)+Object.keys(T.k).sort().map(k=>nodeHtml(k,T.k[k],k,0,q)).join('');
+  document.body.classList.toggle('hasSel',sel.size>0);
+  $('mr').className=mode==='review'&&filterDest===null?'on':'';$('ma').className=mode==='all'&&filterDest===null?'on':'';
+  const drafts=Object.keys(dec).length;
+  $('sv').textContent=`Save decisions (${drafts})`;$('sv').disabled=!drafts;$('un').disabled=!hist.length;$('acc').disabled=!sel.size;
+  $('msg').textContent=`${sel.size} selected · ${Object.keys(saved).length} saved`;
+}
+
+// --- selection: click toggles, shift-click selects a range ---
+$('files').addEventListener('click',e=>{
+  if(e.target.id==='more'){limit+=300;return draw()}
+  const r=e.target.closest('.fr');if(!r)return;const i=+r.dataset.i,u=view[i];
+  if(e.shiftKey&&last>=0){const [a,b]=[Math.min(i,last),Math.max(i,last)];for(let k=a;k<=b&&k<view.length;k++)sel.add(view[k].unit)}
+  else sel.has(u.unit)?sel.delete(u.unit):sel.add(u.unit);
+  last=i;draw()});
+
+// --- assign (drag & drop, or the "← here" button) ---
+function assign(dest){const list=UNITS.filter(u=>sel.has(u.unit));if(!list.length)return;
+  hist.push(list.map(u=>[u.unit,dec[u.unit]]));if(hist.length>50)hist.shift();
+  list.forEach(u=>{dec[u.unit]=dest});sel.clear();keep();draw()}
+$('files').addEventListener('dragstart',e=>{const r=e.target.closest('.fr');if(!r)return;const u=view[+r.dataset.i];
+  if(!sel.has(u.unit)){sel.clear();sel.add(u.unit);document.querySelectorAll('.fr.sel').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');document.body.classList.add('hasSel')} /* no redraw: replacing the node would cancel the drag */e.dataTransfer.setData('text/plain',sel.size+' files');e.dataTransfer.effectAllowed='move'});
+const over=e=>e.target.closest&&e.target.closest('.nd.drop');
+$('nodes').addEventListener('dragover',e=>{const n=over(e);if(n){e.preventDefault();document.querySelectorAll('.nd.over').forEach(x=>x.classList.remove('over'));n.classList.add('over')}});
+$('nodes').addEventListener('dragleave',e=>{const n=over(e);if(n)n.classList.remove('over')});
+$('nodes').addEventListener('drop',e=>{const n=over(e);if(!n)return;e.preventDefault();assign(n.dataset.d)});
+$('nodes').addEventListener('click',e=>{
+  const b=e.target.closest('.as');if(b)return assign(b.dataset.a);
+  const n=e.target.closest('.nd');if(!n)return;const d=n.dataset.d,p=n.dataset.p;
+  if(e.target.classList.contains('tw')||!d){if(p){open.has(p)?open.delete(p):open.add(p)}}
+  else{filterDest=filterDest===d?null:d;limit=300}
+  draw()});
+
+// --- toolbar ---
+$('mr').onclick=()=>{mode='review';filterDest=null;draw()};$('ma').onclick=()=>{mode='all';filterDest=null;draw()};
+$('acc').onclick=()=>{const list=UNITS.filter(u=>sel.has(u.unit));hist.push(list.map(u=>[u.unit,dec[u.unit]]));list.forEach(u=>{dec[u.unit]=choiceOf(u)});sel.clear();keep();draw()};
+$('un').onclick=()=>{const h=hist.pop();if(!h)return;h.forEach(([k,v])=>v===undefined?delete dec[k]:dec[k]=v);keep();draw()};
+['th','q'].forEach(id=>$(id).oninput=()=>{limit=300;draw()});$('tq').oninput=draw;
+addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='z'){$('un').click()}if(e.key==='Escape'){sel.clear();draw()}});
+
+// --- save: only explicit decisions, merged into the file (earlier saves are kept) ---
+async function persist(){
+  if(location.protocol==='http:'){ // served by file-map-serve.mjs: one click, no dialog
+    try{const r=await fetch('/save/'+OUT,{method:'POST',body:JSON.stringify(saved)});if(r.ok){saved=await r.json();return true}}catch{}
+    alert('Could not reach the local file-map server. Start it with map_files action "serve".');return false}
+  try{
+    if(!handle){handle=await showSaveFilePicker({suggestedName:OUT,types:[{accept:{'application/json':['.json']}}]});
+      try{const old=JSON.parse(await (await handle.getFile()).text());Object.assign(saved,{...old,...saved})}catch{}}
+    const w=await handle.createWritable();await w.write(JSON.stringify(saved,null,1));await w.close();return true}
+  catch(e){if(e&&e.name==='AbortError'){handle=null;return false}
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(saved,null,1)],{type:'application/json'}));a.download=OUT;a.click();return true}}
+$('sv').onclick=async()=>{const drafts={...dec},before={...saved};Object.assign(saved,drafts);
+  if(await persist()){Object.keys(drafts).forEach(k=>delete dec[k]);hist=[];keep()}else{saved=before}draw()};
+draw();
+</script></body></html>

@@ -1,0 +1,17 @@
+node_modules/
+ChromeProfile/
+EdgeProfile/
+secrets/
+runs.jsonl
+*.log
+.env
+dist/
+!monitor-ui/dist/
+!monitor-ui/dist/**
+.ci-tools/
+.sessions/
+.playwright*/
+runtime/
+.bundled-lock.sha256
+monitor-ui/.build.css
+.monitor-session
