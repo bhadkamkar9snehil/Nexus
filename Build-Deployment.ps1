@@ -54,6 +54,15 @@ $output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"
 if (Test-Path -LiteralPath $output) { throw 'Output archive exists; choose a fresh version label.' }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Optimal,$true)
+$sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+if ($sevenZip) {
+    Push-Location $stageRoot
+    try {
+        & $sevenZip.Source a -tzip -mx=5 -bd -bso0 $output 'shared-computer-use'
+        if ($LASTEXITCODE -ne 0) { throw 'Deployment archive creation failed.' }
+    } finally { Pop-Location }
+} else {
+    [IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Optimal,$true)
+}
 Get-Item -LiteralPath $output | Select-Object FullName,Length
 Get-FileHash -LiteralPath $output -Algorithm SHA256
