@@ -33,6 +33,8 @@ The connection badge proves the monitor responds. Runtime health separately repo
 
 Screenshots show an actual local installation and a bounded recorded window. Counts, cost estimates, registrations and readiness differ per machine. [UI provenance](monitor-ui/PROVENANCE.md) records the reused source and GitLab references.
 
+The repository also contains a preliminary Windows desktop host for the monitor in `desktop/`. With the .NET 10 SDK and WebView2 runtime installed, build it using `dotnet build desktop/Nexus.Desktop.csproj --configuration Release`. It uses the existing monitor and its managed startup task. It is not included in the deployment ZIP and has no installer or updater; the existing browser monitor and installation remain the supported path.
+
 ## Install
 
 ### Deployment ZIP — recommended

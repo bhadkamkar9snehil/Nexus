@@ -15,3 +15,5 @@ runtime/
 .bundled-lock.sha256
 monitor-ui/.build.css
 .monitor-session
+desktop/bin/
+desktop/obj/
