@@ -25,4 +25,4 @@ Limits: 1–20 browser/native steps; browser deadline120s, native45s. Ranking up
 
 Humans can save arguments as a JSON file and invoke `Harness.ps1 call -Tool <tool> -Arguments '@arguments.json'`. Quote the @filename in PowerShell5.1. The shell fallback uses the same MCP implementation and instrumentation, not a second automation service.
 
-Canonical guide: http://10.2.6.112:8080/ssm/shared-computer-use. On another network use the repository's configured Tailscale remote. GitHub distribution is deferred by the owner as of 2026-11-13; do not create a mirror without a new request.
+Canonical guide: http://10.2.6.112:8080/ssm/shared-computer-use. On another network use the repository's configured Tailscale remote. The public source snapshot is https://github.com/bhadkamkar9snehil/Nexus; GitLab remains the development and CI upstream.
