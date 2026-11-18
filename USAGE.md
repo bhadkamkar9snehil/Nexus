@@ -25,11 +25,12 @@ Setup also registers `shared_cua` as `runtime\cua-driver.exe mcp --socket \\.\pi
 ```powershell
 .\Harness.ps1 tools
 .\Harness.ps1 status
-.\Harness.ps1 call -Tool find_files -Arguments '{"pattern":"*.pdf","kind":"file","limit":10}'
-.\Harness.ps1 call -Tool jev_browse -Arguments '@browser-task.json'
+.\Harness.ps1 call find_files '{"pattern":"*.pdf","kind":"file","limit":10}'
+.\Harness.ps1 call jev_browse '@browser-task.json'
+.\Harness.ps1 doctor
 ```
 
-Quote argument-file names beginning with @ in PowerShell5.1. The CLI calls the same MCP server and emits the same compact monitoring metadata. Shell output is machine-readable; the product UI renders readable views rather than dumping it.
+Inline JSON and `@file.json` both work in PowerShell5.1 (the script passes inline JSON through a temporary file). The CLI calls the same MCP server and emits the same compact monitoring metadata. Shell output is machine-readable; the product UI renders readable views rather than dumping it.
 
 ## File names and contents
 

@@ -10,6 +10,7 @@ namespace Nexus.Desktop;
 public partial class MainWindow : Window
 {
     private const string Address = "http://127.0.0.1:8769/";
+    private string _root = AppContext.BaseDirectory;
 
     public MainWindow()
     {
@@ -18,6 +19,17 @@ public partial class MainWindow : Window
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        await ConnectAsync();
+        if (!File.Exists(Path.Combine(_root, "secrets", "computeruse_1.xml")))
+            new SettingsWindow(_root) { Owner = this }.ShowDialog();
+    }
+
+    private async void RetryMonitor(object sender, RoutedEventArgs e) => await ConnectAsync();
+
+    private void OpenSettings(object sender, RoutedEventArgs e) => new SettingsWindow(_root) { Owner = this }.ShowDialog();
+
+    private async Task ConnectAsync()
     {
         try
         {
@@ -32,19 +44,28 @@ public partial class MainWindow : Window
                 status = await WaitForMonitorAsync(http);
             }
             using (status)
-            if (status.RootElement.GetProperty("application").GetString() != "shared-computer-use-monitor")
-                throw new InvalidOperationException("Port 8769 is not serving the Nexus monitor.");
+            {
+                if (status.RootElement.GetProperty("application").GetString() != "shared-computer-use-monitor")
+                    throw new InvalidOperationException("Port 8769 is not serving the Nexus monitor.");
+                var runningRoot = status.RootElement.GetProperty("root").GetString();
+                if (File.Exists(Path.Combine(_root, "Setup.ps1")) &&
+                    !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_root)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(runningRoot ?? "")), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Another Nexus installation owns the monitor. Its settings were not changed.");
+            }
             var dataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Nexus", "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: dataFolder);
             await Browser.EnsureCoreWebView2Async(environment);
             Browser.CoreWebView2.NavigationStarting += RestrictNavigation;
             Browser.CoreWebView2.NewWindowRequested += (_, args) => args.Handled = true;
             Browser.Source = new Uri(Address);
+            Unavailable.Visibility = Visibility.Collapsed;
+            Browser.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Nexus could not open its monitor. Start the Nexus monitor and try again.\n\n{ex.Message}", "Nexus", MessageBoxButton.OK, MessageBoxImage.Error);
-            Close();
+            Browser.Visibility = Visibility.Collapsed;
+            ErrorText.Text = ex.Message;
+            Unavailable.Visibility = Visibility.Visible;
         }
     }
 

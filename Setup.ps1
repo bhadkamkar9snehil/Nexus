@@ -1,5 +1,14 @@
-param([switch]$EnrollKey)
+param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn)
 $ErrorActionPreference = 'Stop'
+$existingTask = Get-ScheduledTask -TaskName 'SharedHarness-Monitor' -ErrorAction SilentlyContinue
+$monitorScript = Join-Path $PSScriptRoot 'Monitor.ps1'
+if ($existingTask -and $existingTask.Actions.Arguments -notlike ('*-File "' + $monitorScript + '" *')) {
+    throw 'Another Nexus installation owns the monitor task. Its services and registrations were preserved; choose that installation or migrate it deliberately.'
+}
+try { $existingMonitor = Invoke-RestMethod 'http://127.0.0.1:8769/monitor-status' -TimeoutSec 2 } catch { $existingMonitor = $null }
+if ($existingMonitor -and ($existingMonitor.application -ne 'shared-computer-use-monitor' -or $existingMonitor.root -ne $PSScriptRoot)) {
+    throw 'Another installation owns the Nexus monitor port. Its services and registrations were preserved.'
+}
 $runtime = Join-Path $PSScriptRoot 'runtime'
 $manifest = Get-Content -LiteralPath (Join-Path $runtime 'SHA256.json') -Raw | ConvertFrom-Json
 foreach ($entry in $manifest) {
@@ -26,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cua sign-in task setup failed.' }
 & (Join-Path $runtime 'cua-driver.exe') autostart kick
 if ($LASTEXITCODE -ne 0) { throw 'Cua startup failed.' }
 if ($EnrollKey) { & (Join-Path $PSScriptRoot 'Set-ComputerUseKey.ps1') }
-& (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup
+& (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup -NoBrowserAtSignIn:$NoBrowserAtSignIn
 & (Join-Path $PSScriptRoot 'Install-Skills.ps1')
 Write-Host 'Setup completed: runtime checks and tool catalog passed; monitor is managed and its sign-in task is running.'
 Write-Host 'Search status, actual file search, Jev authentication, browser and desktop actions have not been verified by setup.'

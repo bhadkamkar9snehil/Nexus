@@ -1,4 +1,4 @@
-param([string]$Version = 'dev', [string]$SourceRef = 'HEAD')
+param([string]$Version = 'dev', [string]$SourceRef = 'HEAD', [switch]$Installer)
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid version label.' }
 $stageRoot = Join-Path $env:TEMP ('harness-bundle-' + [guid]::NewGuid())
@@ -66,3 +66,12 @@ if ($sevenZip) {
 }
 Get-Item -LiteralPath $output | Select-Object FullName,Length
 Get-FileHash -LiteralPath $output -Algorithm SHA256
+if ($Installer) {
+    $iscc = Join-Path $PSScriptRoot 'dist\inno-compiler\ISCC.exe'
+    if (-not (Test-Path -LiteralPath $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
+    & dotnet publish (Join-Path $stage 'desktop\Nexus.Desktop.csproj') --configuration Release --output $stage
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
+    & $iscc "/DPayloadDir=$stage" "/DOutputDir=$outputDir" "/DVersion=$Version" (Join-Path $stage 'installer\Nexus.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+    Get-FileHash -LiteralPath (Join-Path $outputDir "Nexus-Harness-Setup-$Version-windows-x64.exe") -Algorithm SHA256
+}

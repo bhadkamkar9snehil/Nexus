@@ -72,8 +72,13 @@ if ($RegisterAgents) {
     foreach ($agent in 'codex','claude') {
         if (-not (Get-Command $agent -ErrorAction SilentlyContinue)) { continue }
         foreach ($name in 'shared_jev','shared_cua') {
-            & $agent mcp get $name *> $null
-            if ($LASTEXITCODE -eq 0) {
+            $oldPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                & $agent mcp get $name *> $null
+                $registrationExit = $LASTEXITCODE
+            } finally { $ErrorActionPreference = $oldPreference }
+            if ($registrationExit -eq 0) {
                 Write-Warning "$agent already has $name. Existing registration preserved; check its path manually."
                 continue
             }

@@ -10,7 +10,7 @@ This is one Windows-native automation package shared by Codex and Claude. Read [
 4. Use known APIs or deterministic procedures when sufficient. Use `network_probe` for scoped local network and endpoint observations. Use Jev for uncertain actions, workflow selection, candidate ranking, failure classification and evidence judgments. Honor null/uncertain responses; a recommendation does not execute or authorize itself.
 5. `map_files` creates maps, review pages and dry-run proposals. Do not treat it as permission to move files. Inspect current schemas and caller authorization before any separate data-changing operation.
 6. Supply explicit end conditions and read fresh app evidence. Configured credentials, registered MCP entries, installed components, a completed tool call and semantic evidence judgments each prove only their own layer.
-7. If MCP is disconnected, use the installed `Harness.ps1 tools/status/call` or `jev-use/cli.mjs` with quoted `'@arguments.json'`. Do not replace a standard interaction with a new one-off engine.
+7. **Make sure MCP is connected before starting work.** At session start confirm `shared_jev` tools are listed (load deferred ones) and that `search_status` succeeds. If not, say so and fix it: run `Harness.ps1 doctor`, read the cause the CLI prints (it shows the server's startup output), repair the registration/install, then reconnect the session. The CLI (`Harness.ps1 tools/status/call <tool> '<json>'`, inline JSON or `@file.json`) is a diagnostic and stopgap that starts its own server; it does not prove the agent's MCP is connected. Do not replace a standard interaction with a new one-off engine, and do not carry on silently with another tool.
 
 ## Install and operate
 

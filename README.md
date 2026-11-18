@@ -2,84 +2,46 @@
 
 Nexus gives Codex and Claude Code a shared set of Windows tools for finding files, searching text, using browsers and desktop apps, investigating networks, and making bounded decisions with TypeSafe Jev. Its local monitor shows tool activity and component health.
 
-**Start here:** [What to download](#what-to-download) · [Install the harness](#install-the-harness) · [Open the desktop app](#open-the-desktop-app) · [Connect Codex and Claude](#connect-codex-and-claude-code) · [Verify the installation](#verify-the-installation) · [Troubleshooting](#troubleshooting)
+**Start here:** [What to download](#what-to-download) · [Install with the wizard](#install-with-the-wizard) · [Settings](#settings) · [Connect Codex and Claude](#connect-codex-and-claude-code) · [Verify the installation](#verify-the-installation) · [Troubleshooting](#troubleshooting)
 
 ![Nexus monitor overview, light theme](docs/screenshots/overview-light.png)
 
 ## What to download
 
-Get the downloads from [GitLab releases](http://10.2.6.112:8080/ssm/shared-computer-use/-/releases). The office link uses the GitLab LAN address; outside the office, connect to the same GitLab through its [Tailscale address](http://100.110.236.122:8080/ssm/shared-computer-use/-/releases) when reachable. Authenticate to GitLab if prompted. GitLab also lists source-code archives automatically; they are not installation packages.
+Get the installer from [GitLab releases](http://10.2.6.112:8080/ssm/shared-computer-use/-/releases) (outside the office, the same server at its [Tailscale address](http://100.110.236.122:8080/ssm/shared-computer-use/-/releases)). GitLab also lists source-code archives; they are not installers.
 
 | Download | What it does |
 |---|---|
-| **Windows x64 deployment ZIP** | The harness: setup scripts, Node runtime, browser and desktop tooling, search components, monitor, dependencies, and agent instructions. Use this for a new installation. |
-| **Nexus desktop EXE (Windows x64)** | An optional window for the monitor on a machine where the harness is already installed. It does not install or configure the harness. |
-| **SHA256 files** | Checksums for verifying the respective downloaded ZIP and EXE. |
-
-The desktop EXE and deployment ZIP are separate downloads. The EXE is a preliminary self-contained .NET application: it needs the existing Nexus monitor and Microsoft Edge WebView2 Runtime. It does not include an installer, automatic updater, or the harness itself. A browser can always open the monitor at `http://127.0.0.1:8769/` instead.
+| **Nexus-Harness-Setup-X.Y.Z-windows-x64.exe** | The one installer. A setup wizard installs the harness, runtimes, skills and the Nexus app, adds Start menu and optional desktop shortcuts with the Nexus icon, starts Nexus at sign-in, and registers Codex and Claude where found. |
+| **Deployment ZIP** | Advanced: the same harness without the wizard, for scripted or manual setup (`Setup.ps1 -EnrollKey`). |
+| **SHA256 files** | Checksums for the downloads. |
 
 ## Requirements
 
-- Windows 11 x64, an interactive user session, and Windows PowerShell 5.1.
-- Codex and/or Claude Code installed and signed in separately. Nexus does not install or authenticate these agents.
-- Your own TypeSafe API key for Jev-backed tools. Key enrollment and provider authentication are separate checks.
-- Chrome or Edge for browser tasks. Deployment setup attempts to install Chrome through WinGet if neither is detected.
-- Microsoft Edge WebView2 Runtime for the optional desktop EXE.
-- Internet access for Jev and any required downloads. The monitor itself runs locally. Installing the UFFS search broker can prompt for administrator approval.
+- Windows 11 x64, an interactive user session, and Windows PowerShell 5.1. The installer needs no administrator rights; the UFFS search broker may ask for approval once.
+- Codex and/or Claude Code installed and signed in separately. Nexus does not install or authenticate them.
+- Your own TypeSafe API key for Jev-backed tools.
+- Chrome or Edge for browser tasks, and the Microsoft Edge WebView2 Runtime for the Nexus window.
 
-The deployment ZIP includes its own Node, Cua Driver, UFFS and ripgrep executables and locked npm dependencies. Docker, WSL, a local model, a GPU, and a separate Python environment are not required.
+Everything else (Node, Cua Driver, UFFS, ripgrep, npm dependencies) is bundled.
 
-## Install the harness
+## Install with the wizard
 
-These steps describe release **v1.7.2**. For a later release, use its ZIP and matching checksum names. Perform setup as the Windows user who will run the agents. If Nexus is already configured, read [Updates and rollback](#updates-and-rollback) before replacing or moving anything.
-
-1. Download **Windows x64 deployment ZIP** and its **SHA256 checksum** from the release page. The following example assumes both are in your Downloads folder.
-2. Open Windows PowerShell 5.1. If local execution policy prevents the included scripts from running, start a temporary session with `powershell.exe -NoProfile -ExecutionPolicy Bypass`; this does not change the machine's execution policy. Compare the downloaded archive's hash with the first value in the checksum file. They must match before extraction:
+1. Download the installer and compare its hash with the `.sha256` file:
 
    ```powershell
-   $zip = Join-Path $env:USERPROFILE 'Downloads\nexus-v1.7.2-windows-x64.zip'
-   $checksum = Join-Path $env:USERPROFILE 'Downloads\nexus-v1.7.2-windows-x64.zip.sha256'
-   $expected = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+')[0]
-   (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -eq $expected
+   (Get-FileHash -LiteralPath "$env:USERPROFILE\Downloads\Nexus-Harness-Setup-X.Y.Z-windows-x64.exe" -Algorithm SHA256).Hash
    ```
 
-   Continue only when the result is `True`.
+2. Run it as the Windows user who will run the agents. Choose a folder outside AppData (default `Documents\Nexus Harness`) and whether to add a desktop shortcut.
+3. At the end, leave **Open Nexus Harness** ticked. Open **Settings**, paste your TypeSafe API key and select **Save API key**, then **Set up or repair** if anything is missing.
+4. Restart or reconnect Codex and Claude, then follow [Verify the installation](#verify-the-installation).
 
-3. Extract the complete ZIP into a stable ordinary folder outside AppData. The archive contains a `shared-computer-use` folder:
+If another Nexus installation already owns the monitor, the installer stops and changes nothing. Silent install: `Nexus-Harness-Setup-X.Y.Z-windows-x64.exe /VERYSILENT /DIR="C:\Nexus"`. Uninstall from Windows **Installed apps**.
 
-   ```powershell
-   Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:USERPROFILE 'Documents\Nexus-Harness')
-   Set-Location (Join-Path $env:USERPROFILE 'Documents\Nexus-Harness\shared-computer-use')
-   ```
+## Settings
 
-4. Run setup and enter your TypeSafe key at the masked prompt:
-
-   ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Setup.ps1 -EnrollKey
-   ```
-
-   Accept the UFFS broker elevation prompt if one appears. Setup checks bundled runtime hashes and dependencies, configures the broker and Cua Driver, checks the package, attempts to add missing agent registrations, installs the managed skill where agent folders exist, and configures monitor startup. Existing registrations and unrelated skills are preserved. If an existing monitor task belongs to another installation, setup stops instead of replacing it.
-
-5. Restart or reconnect your Codex and Claude sessions. Then follow [Connect Codex and Claude Code](#connect-codex-and-claude-code) and [Verify the installation](#verify-the-installation). Setup finishing does not prove a real search, authenticated Jev call, browser task, or desktop action has succeeded.
-
-If you need to enroll or replace the key later, run `.\Set-ComputerUseKey.ps1` in Windows PowerShell. It prompts securely. A separate `TYPESAFE_API_KEY` environment variable can supply the default when the encrypted default file is absent. Reconnect agents after changing the key.
-
-## Open the desktop app
-
-1. Complete the harness installation above and confirm the monitor is running. Download **Nexus desktop EXE (Windows x64)** and its separate EXE checksum from the same release.
-2. For v1.7.2, compare the EXE with its checksum file in Downloads. Continue only when the result is `True`:
-
-   ```powershell
-   $exe = Join-Path $env:USERPROFILE 'Downloads\Nexus.Desktop.exe'
-   $exeChecksum = Join-Path $env:USERPROFILE 'Downloads\Nexus.Desktop.exe.sha256'
-   $expectedExe = ((Get-Content -LiteralPath $exeChecksum -Raw).Trim() -split '\s+')[0]
-   (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -eq $expectedExe
-   ```
-
-   Save the verified EXE in a stable folder and double-click it. It is a portable executable; no installation wizard or shortcut is created.
-3. The window connects to the existing monitor at `http://127.0.0.1:8769/`. If the monitor is stopped, it attempts to start the existing `SharedHarness-Monitor` scheduled task. If that task is missing, run harness setup first. Close the window normally when finished.
-
-The desktop window has its own WebView2 state under `%LOCALAPPDATA%\Nexus\WebView2`. It is not a second MCP server, does not install or update the harness, and does not configure Codex or Claude. It has been launched against the existing monitor on the owner's laptop; fresh-machine installation, task startup from the EXE, and broad desktop acceptance remain unverified.
+The Nexus window has a **Settings** screen. It shows the installation folder, saves or replaces the default TypeSafe key, and reruns harness and agent setup. Under **Keys for individual tools**, save a named key, choose a tool and assign the key; choose **Use default key** to remove an assignment. Saving an existing name replaces that key. Keys are encrypted for your Windows account and are never placed in command lines or logs. Reconnect agents after changing keys or assignments.
 
 ## Connect Codex and Claude Code
 
@@ -151,7 +113,9 @@ For other invocations, use the same implementation through the CLI:
 .\Harness.ps1 call -Tool jev_browse -Arguments '@browser-task.json'
 ```
 
-Quote `@filename` in PowerShell 5.1 so it is passed as an argument rather than treated as splatting. See [USAGE.md](USAGE.md) for the current inputs, examples, limits and expected outcomes.
+`call` takes the tool name and either inline JSON or `@file.json`; `Harness.ps1` handles Windows PowerShell 5.1 quote stripping itself, so no manual escaping is needed (quote `@file` so PowerShell does not treat it as splatting). `.\Harness.ps1 doctor` runs `Diagnose.ps1`.
+
+If an agent reports `MCP error -32000: Connection closed`, the harness server exited at startup. The CLI now prints the server's own output and the cause; a credential that cannot be decrypted (a `computeruse_1.xml` copied from another Windows user or machine) no longer stops the server, it only disables Jev tools until `Set-ComputerUseKey.ps1` is run. The CLI starts its own server, so it does not prove that an agent's MCP registration or session is connected: reconnect the agent and confirm its `shared_jev` tools are listed and a `search_status` call succeeds. See [USAGE.md](USAGE.md) for the current inputs, examples, limits and expected outcomes.
 
 ## Tools
 
@@ -234,7 +198,7 @@ Removing the startup task is a separate operation. `InstallStartup` checks task 
 
 The default key is stored in `secrets\computeruse_1.xml`, encrypted with Windows DPAPI for the current Windows account. Do not put key values in source control, release bundles, logs or instructions. Keep the installation's secrets, browser profiles, sessions and run history on the same account and machine unless deliberately migrated. Codex and Claude authentication is separate from the TypeSafe key.
 
-Optional per-tool aliases let tools share or use different TypeSafe keys. Enroll each alias at a masked prompt:
+Use Nexus Settings to save named keys and assign them to tools. As an alternative, optional per-tool aliases can be configured from PowerShell. Enroll each alias at a masked prompt:
 
 ```powershell
 .\Set-ComputerUseKey.ps1 -Alias browser_team

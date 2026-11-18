@@ -15,7 +15,10 @@ try {
         $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script),[ref]$tokens,[ref]$parseErrors)
         if ($parseErrors.Count) { throw "PowerShell parser failed for $script" }
     }
-    $reply = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | & node .\start.mjs
+    # Redirect from a file: piping from PowerShell is not reliable for a stdio server.
+    $request = Join-Path ([IO.Path]::GetTempPath()) ('mcp-request-' + [guid]::NewGuid() + '.json')
+    [IO.File]::WriteAllText($request, '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' + "`n")
+    try { $reply = cmd.exe /c "node .\start.mjs < `"$request`"" } finally { Remove-Item -LiteralPath $request -Force -ErrorAction SilentlyContinue }
     if ($LASTEXITCODE -ne 0) { throw 'MCP launcher failed.' }
     $json = $reply | ConvertFrom-Json
     foreach ($name in 'jev_browse','jev_desktop','jev_search_content','search_local','network_probe','map_files','find_files','search_status','jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result') {

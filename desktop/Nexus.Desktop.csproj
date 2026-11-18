@@ -7,8 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
+    <ApplicationIcon>Assets\Nexus.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <Resource Include="Assets\Nexus.ico" />
   </ItemGroup>
 </Project>

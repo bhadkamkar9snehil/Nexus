@@ -1,4 +1,4 @@
-param([ValidateSet('Start','Stop','Status','InstallStartup','Run','Open')][string]$Action='Start',[switch]$OpenAtSignIn)
+param([ValidateSet('Start','Stop','Status','InstallStartup','Run','Open')][string]$Action='Start',[switch]$OpenAtSignIn,[switch]$NoBrowserAtSignIn)
 $ErrorActionPreference='Stop'
 $url='http://127.0.0.1:8769'
 $name='SharedHarness-Monitor'
@@ -16,7 +16,8 @@ $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
 if($task -and $task.Actions.Arguments -notlike ('*-File "'+$script+'" *')){throw 'Existing monitor task belongs to another installation; it was preserved.'}
 if($Action -eq 'InstallStartup'){
     $user=[Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$script+'" Run -OpenAtSignIn'
+    $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$script+'" Run'
+    if (-not $NoBrowserAtSignIn) { $arguments += ' -OpenAtSignIn' }
     $actionObject=New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $PSScriptRoot
     $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user
     $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited

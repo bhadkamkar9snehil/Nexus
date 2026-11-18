@@ -8,8 +8,11 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: [join(import.meta.dirname, 'start.mjs')],
   env: process.env,
-  stderr: 'ignore',
+  stderr: 'pipe',
 });
+// Keep the server's own stderr so a startup failure is reported instead of a bare "Connection closed".
+let serverLog = '';
+transport.stderr?.on('data', chunk => { serverLog = (serverLog + chunk).slice(-4000); });
 const client = new Client({ name: 'shared-harness-cli', version: '1.0.0' });
 try {
   if (extra) throw new Error('Usage: node cli.mjs <tool|tools> [JSON or @arguments.json]');
@@ -26,7 +29,11 @@ try {
   if (result.isError || output.status === 'error') process.exitCode = 1;
   else if (output.status === 'blocked') process.exitCode = 2;
 } catch (error) {
-  process.stderr.write((error instanceof Error ? error.message : 'Harness CLI failed') + '\n');
+  const message = error instanceof Error ? error.message : 'Harness CLI failed';
+  const closed = /Connection closed|-32000/.test(message);
+  process.stderr.write(message + '\n');
+  if (serverLog.trim()) process.stderr.write('Harness server output:\n' + serverLog.trim() + '\n');
+  else if (closed) process.stderr.write('The harness server exited at startup without output. Run Diagnose.ps1 and check Node, jev-use\\node_modules and the install folder path.\n');
   process.exitCode = 1;
 } finally {
   await transport.close();

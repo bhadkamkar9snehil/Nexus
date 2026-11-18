@@ -1,0 +1,38 @@
+<Window x:Class="Nexus.Desktop.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Nexus settings" Width="680" Height="610" MinWidth="600" MinHeight="560" WindowStartupLocation="CenterOwner" Background="#F5F7F8" Icon="Assets/Nexus.ico">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="32">
+      <TextBlock Text="Settings" FontSize="25" FontWeight="SemiBold" Foreground="#153C50"/>
+      <TextBlock Text="Installation" FontSize="16" FontWeight="SemiBold" Margin="0,25,0,6" Foreground="#153C50"/>
+      <TextBlock Name="RootLabel" TextWrapping="Wrap" Foreground="#425964"/>
+      <Separator Margin="0,20,0,0"/>
+      <TextBlock Text="TypeSafe API key" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,6" Foreground="#153C50"/>
+      <TextBlock Name="KeyStatus" Foreground="#425964" TextWrapping="Wrap"/>
+      <PasswordBox Name="KeyInput" Margin="0,12,0,0" Padding="10" AutomationProperties.Name="TypeSafe API key"/>
+      <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+        <Button Name="SaveButton" Content="Save API key" Click="SaveKey" Padding="16,8"/>
+      </StackPanel>
+      <Separator Margin="0,22,0,0"/>
+      <TextBlock Text="Keys for individual tools" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,6" Foreground="#153C50"/>
+      <TextBlock Text="Save a named key, then assign it to a tool. Saving an existing name replaces that key. Other tools use the default key." TextWrapping="Wrap" Foreground="#425964"/>
+      <TextBlock Text="Key name" Margin="0,14,0,4"/>
+      <TextBox Name="AliasInput" MaxLength="40" Padding="8" AutomationProperties.Name="Key name"/>
+      <TextBlock Text="TypeSafe API key" Margin="0,12,0,4"/>
+      <PasswordBox Name="NamedKeyInput" Padding="8" AutomationProperties.Name="Named TypeSafe API key"/>
+      <Button Name="SaveNamedButton" Content="Save named key" Click="SaveNamedKey" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="16,8"/>
+      <TextBlock Name="NamedFeedback" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#153C50" AutomationProperties.LiveSetting="Polite"/>
+      <TextBlock Text="Tool" Margin="0,18,0,4"/>
+      <ComboBox Name="ToolChoice" SelectionChanged="ToolChanged" Padding="8" AutomationProperties.Name="Tool"/>
+      <TextBlock Text="Key for selected tool" Margin="0,12,0,4"/>
+      <ComboBox Name="KeyChoice" Padding="8" AutomationProperties.Name="Key for selected tool"/>
+      <Button Name="AssignButton" Content="Save tool assignment" Click="SaveAssignment" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="16,8"/>
+      <TextBlock Name="AssignmentFeedback" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#153C50" AutomationProperties.LiveSetting="Polite"/>
+      <Separator Margin="0,22,0,0"/>
+      <TextBlock Text="Harness and agents" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,6" Foreground="#153C50"/>
+      <TextBlock Text="Set up the monitor, search, desktop driver and available Codex and Claude registrations." TextWrapping="Wrap" Foreground="#425964"/>
+      <TextBlock Text="Existing registrations and tasks belonging to another installation are preserved." Margin="0,7,0,0" TextWrapping="Wrap" Foreground="#425964"/>
+      <Button Name="SetupButton" Content="Set up or repair" Click="RunSetup" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="16,8"/>
+      <TextBlock Name="Feedback" Margin="0,18,0,0" TextWrapping="Wrap" Foreground="#153C50" AutomationProperties.LiveSetting="Polite"/>
+      <Button Content="Close" Click="CloseWindow" HorizontalAlignment="Right" Margin="0,18,0,0" Padding="18,8"/>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
