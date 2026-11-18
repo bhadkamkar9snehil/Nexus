@@ -5,6 +5,20 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+test('local text setup refuses to replace existing browser model settings', { skip: process.platform !== 'win32' }, () => {
+  const root = mkdtempSync(join(resolve('.'), '.local-text-test-'));
+  try {
+    mkdirSync(join(root, 'jev-browse'));
+    copyFileSync(resolve('../Setup-LocalText.ps1'), join(root, 'Setup-LocalText.ps1'));
+    const config = join(root, 'jev-browse', '.env');
+    writeFileSync(config, 'EXISTING_SETTING=preserve\n');
+    assert.throws(() => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'Setup-LocalText.ps1')], { encoding: 'utf8', stdio: 'pipe', timeout: 10000 }), /already exists/);
+    assert.equal(readFileSync(config, 'utf8'), 'EXISTING_SETTING=preserve\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('source setup preserves unverified dependencies and reuses a matching lock', { skip: process.platform !== 'win32' }, () => {
   const root = mkdtempSync(join(resolve('.'), '.install-test-'));
   const modules = join(root, 'jev-use', 'node_modules');

@@ -58,6 +58,8 @@ map_files produces classification maps, review pages, treemaps and dry-run root 
 
 `jev_browse` requires goal, url and expect_text. Optional browser is chrome/edge; backend is cdp/playwright (cdp default); session is a stable alphanumeric/underscore/hyphen name up to40characters; max_steps is1–20. URLs must be HTTP(S) without embedded credentials.
 
+For CDP tasks that generate field text or a written answer, install and start Ollama and run `Setup-LocalText.ps1` once from the Nexus folder. It downloads `qwen2.5:1.5b` and creates `jev-browse\.env` only when no configuration already exists. The configured endpoint is local; Jev decisions still use TypeSafe. Keep Ollama running. Existing text-model environment variables override the file. Local inference can be slow and its answers require review. The Playwright backend fills only caller-supplied `fields` and does not generate answers.
+
 For forms, fields maps exact accessible field labels to caller-supplied text. Example task: goal “Fill Name, check Blue and submit”; fields Name → Harness test; expected text Confirmed. Supported Playwright controls are button, link, checkbox/radio and supplied textbox/searchbox. No general free-text generation or visual fallback is implied.
 
 Chrome/Edge launch automatically. Dedicated profiles preserve sessions without replacing personal profiles. Named Playwright sessions have cross-process locks and reuse browser state. A session_busy result means wait or use an independently intended session, not delete an active lock. After a crash, verify the task is no longer active before removing only its stale lock.

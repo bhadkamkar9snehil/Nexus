@@ -13,6 +13,7 @@ Use the installed tools for supported capabilities. Do not write one-off scripts
 - Text in known folders: use `search_local` for local-only search, large files and sensitive content; use `jev_search_content` when bounded excerpts may be sent to Jev for ranking. Inspect truncation and errors; neither extracts PDF/Office content.
 - Network investigation: `network_probe` inspects local interfaces and optionally probes explicitly supplied hosts, URLs or IPv4 subnets. A missing ICMP reply is not proof a host is absent. Choose the target scope deliberately.
 - Websites: `jev_browse`; it launches Chrome/Edge itself. Prefer `backend=playwright` and a stable session when cross-agent browser contention matters.
+- CDP browser tasks that generate text or written answers need a text helper. The optional local setup is in README.md; Playwright fills only caller-supplied fields and does not generate answers.
 - Native Windows controls: `jev_desktop`; use an exact app/window and explicit expected result. Packaged apps can use launch_aumid.
 - Uncertain route, candidates, errors or supplied outcome evidence: `jev_select_workflow`, `jev_rank_results`, `jev_classify_failure`, `jev_verify_result`. Recommendations do not execute themselves; uncertain/null is a valid result.
 - File organization proposals: `map_files`; inspect its current schema. It builds maps and dry-run proposals, not file moves.

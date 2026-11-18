@@ -2,6 +2,8 @@
 
 # jev-browse
 
+Nexus carries local changes in the committed `bundled/` files: support for omitting the provider-specific reasoning field and Jev-based checking of local-model answers. Preserve and revalidate these changes when updating the upstream bundle.
+
 You give jev-browse a goal and a start URL, and it drives Chrome until the goal
 is done or it's stuck. On each step, [TypeSafe's Jev](https://docs.typesafe.ai)
 reads a numbered table of what's on the page and picks one operation and one

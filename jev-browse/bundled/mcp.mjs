@@ -823,7 +823,7 @@ async function helperJson(systemPrompt, context, requireKey, reason, modelOverri
   }
   const base = (process.env.TEXT_MODEL_BASE_URL ?? "https://api.deepseek.com/v1").replace(/\/+$/, "");
   const model = modelOverride ?? process.env.TEXT_MODEL ?? "deepseek-chat";
-  const reasoning = base.includes("api.deepseek.com/") ? { thinking: { type: "disabled" } } : { reasoning: reason ? { effort: "low" } : { enabled: false } };
+  const reasoning = process.env.TEXT_MODEL_OMIT_REASONING === "1" ? {} : base.includes("api.deepseek.com/") ? { thinking: { type: "disabled" } } : { reasoning: reason ? { effort: "low" } : { enabled: false } };
   const started = performance.now();
   const result = await postJson(`${base}/chat/completions`, key, {
     model,
@@ -950,7 +950,21 @@ async function requestReview(context) {
   }
   return { verdict, reason, helper };
 }
-async function reviewAnswer(context) {
+async function reviewAnswer(context, client) {
+  if (process.env.TEXT_MODEL_OMIT_REASONING === "1") {
+    const response = await client.systemOne({
+      state: context,
+      questions: {
+        supported: { type: "noul", instructions: "Are the factual claims in proposed_answer supported by the observed evidence?", criteria: { true: "The observed evidence supports every factual claim.", false: "A claim is contradicted or lacks supporting evidence." } },
+        complete: { type: "noul", instructions: "Does proposed_answer provide all the information requested by user_goal?", criteria: { true: "The answer addresses all requested information.", false: "The answer is missing requested information." } }
+      }
+    });
+    trace("local_answer_review_response", response);
+    const values = [response.answers.supported, response.answers.complete];
+    if (values.some((v) => v?.type !== "noul" || !isFiniteNumber(v.noul) || v.noul < 0 || v.noul > 1)) throw new Error("Invalid answer review response");
+    const accepted = values.every((v) => v.noul >= 0.7);
+    return { verdict: accepted ? "SUPPORTED" : "REWRITE", reason: accepted ? "The answer matches the observed evidence." : "The answer was not verified against all requested information and evidence." };
+  }
   for (let attempt = 0; ; attempt++) {
     try {
       return await requestReview(context);
@@ -979,9 +993,12 @@ async function prepareAnswer(agent) {
     if (generationError) return { status: "unverified", reason: generationError };
     const context = answerReviewContext(agent.goal, answer, outcomeObservation(agent.page), agent.progressObservations, answerElements(agent.page));
     trace("answer_review_request", context);
-    const response = await reviewAnswer(context);
+    const response = await reviewAnswer(context, agent.client);
     trace("answer_review_verdict", response);
-    if (response.verdict === "NOT_REQUESTED") return { status: "not_requested" };
+    if (response.verdict === "NOT_REQUESTED") {
+      feedback = "The goal requests information. Return the answer supported by the observations.";
+      continue;
+    }
     if (response.verdict === "SUPPORTED" && answer) return { status: "supported", answer };
     if (response.verdict === "MISSING_EVIDENCE") return { status: "missing_evidence", reason: response.reason };
     feedback = `Review feedback: ${response.reason} Provide the complete requested information from observations, with no placeholders or unsupported claims. Return null if evidence is missing.`;

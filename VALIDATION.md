@@ -1,5 +1,15 @@
 # Validation and acceptance
 
+## Local browser text — 2026-11-18
+
+On the owner's Windows laptop, `Setup-LocalText.ps1` configured an existing Ollama installation with `qwen2.5:1.5b`. The CDP browser filled a local fixture with the requested text and returned an answer from a public example page. A small local model initially misclassified requested answers during review; the local path now asks Jev separately whether the answer is supported and complete and rejects low-confidence or invalid results. These are bounded probes, not proof that every page or answer is correct. The Ollama installation itself and the setup on a clean teammate machine have not been verified.
+
+## Desktop installer assembly
+
+Publishing the WPF project directly into its source staging directory's parent can produce an assembly containing only the generated application class: the executable runs without opening a window. `Publish-Desktop.ps1` publishes outside the source tree, validates the assembly's `App.OnStartup`, `MainWindow` and `SettingsWindow` metadata, and validates the copied installer payload again. The desktop CI job exercises the same script. This static check does not replace a Windows UI launch or fresh installer acceptance test.
+
+For MR !30, pipeline 431's desktop-build job passed. Its validate job 914 failed the existing Windows loopback ping-discovery test with a timeout on AUTOSRV02; 124 of 125 tests passed there, and all 125 passed locally. The runner timeout remains uninvestigated.
+
 ## Current operating upgrade — 2026-11-13
 
 Tested on the owner's Windows11 x64 laptop. This is not clean teammate-machine acceptance.

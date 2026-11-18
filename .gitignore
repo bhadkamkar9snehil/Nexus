@@ -17,4 +17,6 @@ monitor-ui/.build.css
 .monitor-session
 desktop/bin/
 desktop/obj/
+tests/**/bin/
+tests/**/obj/
 .key-test-*/

@@ -25,6 +25,8 @@ Get the installer from [GitLab releases](http://10.2.6.112:8080/ssm/shared-compu
 
 Everything else (Node, Cua Driver, UFFS, ripgrep, npm dependencies) is bundled.
 
+Browser tasks that generate text or return written answers also need a text model. For a local model, install and start [Ollama for Windows](https://ollama.com/download/windows), then run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Setup-LocalText.ps1` from the Nexus installation folder. The first run downloads approximately 1 GB. Keep Ollama running when using those browser tasks. A ChatGPT Plus subscription does not provide this model. Jev decisions and answer checks still use the TypeSafe service.
+
 ## Install with the wizard
 
 1. Download the installer and compare its hash with the `.sha256` file:
@@ -42,6 +44,8 @@ If another Nexus installation already owns the monitor, the installer stops and 
 ## Settings
 
 The Nexus window has a **Settings** screen. It shows the installation folder, saves or replaces the default TypeSafe key, and reruns harness and agent setup. Under **Keys for individual tools**, save a named key, choose a tool and assign the key; choose **Use default key** to remove an assignment. Saving an existing name replaces that key. Keys are encrypted for your Windows account and are never placed in command lines or logs. Reconnect agents after changing keys or assignments.
+
+The optional local text model is configured separately by `Setup-LocalText.ps1`. It creates `jev-browse\.env` without overwriting an existing file. If that file already exists, review its text-model settings before changing them. Environment variables take precedence. The local model may be slower and less reliable on complex pages; review returned information and verify browser actions.
 
 ## Connect Codex and Claude Code
 
@@ -261,7 +265,7 @@ The desktop host source is in `desktop/`. Building it requires the .NET 10 SDK; 
 dotnet build .\desktop\Nexus.Desktop.csproj --configuration Release
 ```
 
-For changes, run the relevant package, reference and UI checks; see [VALIDATION.md](VALIDATION.md). `Test-Package.ps1` checks TypeScript, monitor syntax and MCP discovery. `npm --prefix jev-use test` runs the reference/unit suite; rendered monitor checks and live browser/desktop probes are separate and may interact with apps or spend API credit. Clean teammate-machine setup, real authenticated tasks from both agents, and signed-in browser persistence still require destination acceptance.
+For changes, run the relevant package, reference and UI checks; see [VALIDATION.md](VALIDATION.md). `Test-Package.ps1` checks TypeScript, monitor syntax and MCP discovery. `npm --prefix jev-use test` runs the reference/unit suite. `Publish-Desktop.ps1 -PayloadDir <folder>` publishes outside the source tree and checks the resulting assembly and copied payload for its startup and window classes; CI runs this check as well. Rendered monitor checks and live browser/desktop probes are separate and may interact with apps or spend API credit. Clean teammate-machine setup, real authenticated tasks from both agents, and signed-in browser persistence still require destination acceptance.
 
 Follow branch → GitLab MR → observed green Windows pipeline → merge → annotated release tag. `Build-Deployment.ps1 -Version vX.Y.Z` stages the merged source, restores dependencies, builds the monitor, verifies runtimes and makes the ZIP. It uses 7-Zip when available and otherwise the .NET ZIP implementation. Verify extraction using bundled Node, upload the ZIP and checksum to the GitLab package registry, compare the registry hash, and link the assets from the release. Publish and verify a desktop EXE separately when one is included. Do not include credentials, browser profiles, sessions or run history.
 
