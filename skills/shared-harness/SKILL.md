@@ -11,6 +11,7 @@ Use the installed tools for supported capabilities. Do not write one-off scripts
 
 - Names, folders, metadata: `find_files` through UFFS. Do not replace it with recursive PowerShell enumeration. If unavailable, inspect `search_status`; report the actual limitation.
 - Text in known folders: use `search_local` for local-only search, large files and sensitive content; use `jev_search_content` when bounded excerpts may be sent to Jev for ranking. Inspect truncation and errors; neither extracts PDF/Office content.
+- Terminal execution: `start_process` creates a detached managed Windows session. `read_process_output` reads bounded output with absolute line offsets and `evicted_lines`; `interact_with_process` queues input; `list_sessions` and `force_terminate` inspect/stop managed sessions. Use `list_processes` for PID, start identity, CPU seconds and memory. Use `kill_process` only for a user-authorized external process with its observed name and start identity. Commands run as the current Windows user without sandbox protection or a PTY. Use a session_id to avoid PID-reuse ambiguity; no credentials in command strings.
 - Network investigation: `network_probe` inspects local interfaces and optionally probes explicitly supplied hosts, URLs or IPv4 subnets. A missing ICMP reply is not proof a host is absent. Choose the target scope deliberately.
 - Websites: `jev_browse`; it launches Chrome/Edge itself. Prefer `backend=playwright` and a stable session when cross-agent browser contention matters.
 - CDP browser tasks that generate text or written answers need a text helper. The optional local setup is in README.md; Playwright fills only caller-supplied fields and does not generate answers.
@@ -24,7 +25,7 @@ Use a known API or saved deterministic procedure when it is sufficient. Jev is f
 
 Both agents use `shared_jev`; `shared_cua` connects to the same Cua named pipe. Do not start another driver, index, browser per call or personal browser profile. Serialize desktop and legacy-CDP requests across agents. Named Playwright sessions reject concurrent ownership with session_busy; never delete a lock without checking its owner.
 
-The monitor is http://127.0.0.1:8769/. Its connection indicator proves only that the monitor responds. Component health distinguishes running, installed, configured, idle and unverified. A stopped UFFS daemon can be normal on-demand idleness; use a bounded find_files query to verify search.
+The monitor is http://127.0.0.1:8769/. Its connection indicator proves only that the monitor responds. The Terminal panel shows recorded session state, which may be stale after a worker crash. Component health distinguishes running, installed, configured, idle and unverified. A stopped UFFS daemon can be normal on-demand idleness; use a bounded find_files query to verify search.
 
 ## Verify and stop
 

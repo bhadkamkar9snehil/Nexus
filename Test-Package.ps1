@@ -7,6 +7,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Monitor TypeScript validation failed.' }
     & node --check (Join-Path $PSScriptRoot 'monitor.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Monitor syntax check failed.' }
+    & node --check (Join-Path $PSScriptRoot 'jev-use\terminal-worker.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Terminal worker syntax check failed.' }
+    Add-Type -Path (Join-Path $PSScriptRoot 'jev-use\process-identity.cs')
     & node --check (Join-Path $PSScriptRoot 'runtime-status.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime observation syntax check failed.' }
     foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1') {
@@ -21,7 +24,7 @@ try {
     try { $reply = cmd.exe /c "node .\start.mjs < `"$request`"" } finally { Remove-Item -LiteralPath $request -Force -ErrorAction SilentlyContinue }
     if ($LASTEXITCODE -ne 0) { throw 'MCP launcher failed.' }
     $json = $reply | ConvertFrom-Json
-    foreach ($name in 'jev_browse','jev_desktop','jev_search_content','search_local','network_probe','map_files','find_files','search_status','jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result') {
+    foreach ($name in 'jev_browse','jev_desktop','jev_search_content','search_local','network_probe','map_files','find_files','search_status','jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result','start_process','read_process_output','interact_with_process','list_sessions','force_terminate','list_processes','kill_process') {
         if ($name -notin $json.result.tools.name) { throw "Missing MCP tool $name" }
     }
     'PASS: TypeScript, monitor syntax, and MCP tool discovery.'

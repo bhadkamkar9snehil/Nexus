@@ -132,6 +132,13 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `search_local` | Search file contents locally, including large files, with bounded results. |
 | `jev_search_content` | Find scoped text and send selected excerpts to Jev for ranking. |
 | `network_probe` | Inspect local network information or explicitly requested hosts, ports, URLs or IPv4 subnet. |
+| `start_process` | Start a Windows command in a managed terminal session with a session ID and PID. |
+| `read_process_output` | Read bounded output by absolute line offset, including the tail of a session. |
+| `interact_with_process` | Queue input for an active terminal session. |
+| `list_sessions` | Inspect terminal sessions across Codex, Claude and CLI processes. |
+| `force_terminate` | Stop a managed terminal session and its process tree. |
+| `list_processes` | Inspect Windows PID, process name, cumulative CPU seconds and working-set memory. |
+| `kill_process` | Stop a non-managed process using its PID, exact name, observed start identity and explicit confirmation. |
 | `map_files` | Build file maps, review pages and dry-run organization proposals; it does not move files. |
 | `jev_browse` | Run a bounded Chrome or Edge task with an explicit goal and expected text. |
 | `jev_desktop` | Run a bounded accessibility-based Windows task against an identified app and expected state. |
@@ -139,6 +146,8 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `jev_rank_results` | Rank caller-supplied candidates. |
 | `jev_classify_failure` | Classify supplied failure evidence and recommend a recovery. |
 | `jev_verify_result` | Judge whether supplied evidence supports a requested outcome. |
+
+Terminal tools use one detached worker per active session, not another always-running service. Session state and up to 4 MiB of retained output are kept in the current Windows user's LocalAppData under `Nexus\terminal-sessions`. Sessions remain usable after an agent's MCP adapter disconnects. The desktop app groups the seven tools under Terminal and displays session registry state, duration and exit code; it does not run commands itself. Completed sessions are kept until a later start prunes records older than seven days. The registry holds up to 64 records. An explicit session ID is safer than a PID after process reuse. Shell input/output uses pipes, not a pseudo-terminal (PTY); programs requiring a real console may not work. Command execution uses the signed-in Windows user's permissions and is **not sandboxed**. Do not send untrusted commands to the terminal or assume a command blocklist prevents harmful operations. `kill_process` requires `confirm=true`, an exact name and the start identity returned by `list_processes`; agents must get user authorization for disruptive changes. The monitor records tool metadata, not command or stdin content. During launch a private local file briefly holds the command; do not put credentials in command arguments. See [USAGE.md](USAGE.md) for limits and detailed contracts.
 
 The four decision tools return judgments or recommendations; they do not execute a workflow or independently observe the application. A null or uncertain result is valid. Give browser and desktop tasks a specific target and end condition. An inaccessible control, ambiguous target, challenge or step limit can stop the task; inspect the actual result rather than assuming success.
 
@@ -158,6 +167,8 @@ flowchart LR
   C --> D
   M --> F[UFFS and ripgrep]
   M --> L[Local run metadata]
+  M --> T[Detached terminal session workers]
+  T --> W[Windows shells and processes]
   L --> U[Local monitor]
   E[Optional desktop EXE] --> U
 ```

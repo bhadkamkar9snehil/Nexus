@@ -8,6 +8,13 @@ Always obtain the current catalog from shared_jev or Harness.ps1 tools; this ref
 | search_status | none | none |
 | jev_search_content | root, pattern, query | none |
 | search_local | root, pattern | glob, regex, limit; local only |
+| start_process | command | shell, cwd, timeout_ms (up to 3000); managed Windows session |
+| read_process_output | session_id or pid | absolute line offset, length, timeout_ms; follow next_offset, which revisits an unfinished line; old output may be evicted and oversized lines truncated |
+| interact_with_process | session_id or pid, input | append_newline, timeout_ms; queues stdin, does not prove consumption |
+| list_sessions | none | cross-client session inventory; no command text |
+| force_terminate | session_id or pid | stop managed process tree |
+| list_processes | none | pid, name, limit; cumulative CPU seconds and memory bytes |
+| kill_process | pid, expected_name, expected_start_time, confirm=true | non-managed process only; use start_identity from list_processes; user authorization required |
 | network_probe | none | host, ports, url, subnet, system, ping, trace, tls_port, timeout_ms; explicit scope for active probes |
 | map_files | none | action, roots, out_dir, limit_units, open |
 | jev_browse | goal, url, expect_text | browser, backend, session, fields, max_steps |

@@ -7,6 +7,9 @@ import { runtimeStatus } from './runtime-status.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
+const port = Number(process.env.NEXUS_MONITOR_PORT || 8769);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid monitor port');
+const origin = `http://127.0.0.1:${port}`;
 async function inspect(tool) {
   const { stdout } = await execute(node, [join(import.meta.dirname, 'jev-use/cli.mjs'), tool], {
     windowsHide: true, timeout: 40000, maxBuffer: 1024 * 1024, env:{...process.env,HARNESS_MONITOR_OBSERVATION:'1'},
@@ -57,7 +60,7 @@ createServer(async (req, res) => {
     res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     res.end(body);
   };
-  if (req.headers.host !== '127.0.0.1:8769' || req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
+  if (req.headers.host !== `127.0.0.1:${port}` || req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
   if (req.url === '/monitor-status') return send(200, 'application/json', JSON.stringify({ application: 'shared-computer-use-monitor', root: import.meta.dirname, pid: process.pid,managed:process.env.HARNESS_MONITOR_MANAGED==='1' }));
   if (req.url === '/runtime') {
     try {
@@ -68,7 +71,16 @@ createServer(async (req, res) => {
       return send(200,'application/json',JSON.stringify(await runtimeCheck));
     } catch {return send(503,'text/plain','Runtime observations unavailable. The monitor remains online.');}
   }
-  if (new URL(req.url, 'http://127.0.0.1:8769').pathname === '/') return send(200, 'text/html; charset=utf-8', html);
+  if (req.url === '/sessions') {
+    try {
+      const result = await inspect('list_sessions');
+      return send(200, 'application/json', JSON.stringify({sessions: result.sessions.map(s => ({
+        session_id: s.session_id, pid: s.pid, shell: s.shell, state: s.state,
+        started_at: s.started_at, ended_at: s.ended_at, exit_code: s.exit_code,
+      }))}));
+    } catch { return send(503, 'text/plain', 'Terminal sessions unavailable.'); }
+  }
+  if (new URL(req.url, origin).pathname === '/') return send(200, 'text/html; charset=utf-8', html);
   if (req.url === '/favicon.ico') return send(204, 'image/x-icon', '');
   if (Object.hasOwn(assets, req.url)) {
     const type = req.url.endsWith('.js') ? 'text/javascript' : req.url.endsWith('.css') ? 'text/css' : 'font/woff2';
@@ -92,14 +104,14 @@ createServer(async (req, res) => {
   if (req.url !== '/runs') return send(404, 'text/plain', 'Not found');
   try { send(200, 'application/json', JSON.stringify(await recentRuns())); }
   catch { send(500, 'text/plain', 'Could not read the run log'); }
-}).listen(8769, '127.0.0.1', async () => {
-  console.log('Computer & Browser Use Monitor: http://127.0.0.1:8769');
+}).listen(port, '127.0.0.1', async () => {
+  console.log('Computer & Browser Use Monitor: ' + origin);
   const session=process.env.HARNESS_MONITOR_SESSION;
   if(session){
     const marker=new URL('./.monitor-session',import.meta.url);
     let previous='';try{previous=await readFile(marker,'utf8');}catch{}
     if(previous!==session){
-      const child=spawn('explorer.exe',['http://127.0.0.1:8769/'],{windowsHide:true,detached:true,stdio:'ignore'});
+      const child=spawn('explorer.exe',[origin],{windowsHide:true,detached:true,stdio:'ignore'});
       child.on('error',()=>console.error('Could not open the monitor browser. Open the local monitor URL.'));
       child.unref();
       await writeFile(marker,session).catch(()=>console.error('Could not record the monitor sign-in browser launch.'));

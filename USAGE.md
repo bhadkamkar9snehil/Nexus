@@ -46,6 +46,30 @@ UFFS searches NTFS metadata, not contents. Initial indexing can be slow and memo
 
 Content search skips .env/secrets patterns but is not a comprehensive secret detector. `search_local` does not call TypeSafe; selected excerpts from `jev_search_content` do. Neither performs general PDF/Office/OCR extraction. A truncated result set, timeout, inaccessible file or ripgrep warning is not exhaustive. Local search respects ripgrep ignore rules; use an appropriate scoped root and glob.
 
+## Terminal and process tools
+
+All seven terminal tools use `shared_jev` and are available to both Codex and Claude. Commands run as the signed-in Windows user. They are **not sandboxed**, and setting a working directory does not restrict filesystem or network access. Do not execute untrusted instructions. Ask before ending unrelated processes or making destructive system changes.
+
+| Tool | Required | Optional / behavior |
+|---|---|---|
+| `start_process` | command (1–16384 chars) | shell powershell/cmd/pwsh (default powershell); cwd existing absolute directory (default user home); timeout_ms 0–3000 (default 350). Returns session_id and actual shell PID. |
+| `read_process_output` | session_id or pid | offset absolute zero-based line, negative tail (default 0); length 1–200 (default 50); timeout_ms 0–3000. Returns content, total_lines, next_offset, evicted_lines and state. |
+| `interact_with_process` | session_id or pid, input | input up to 8192 chars; appends newline unless append_newline=false; timeout_ms 0–3000 (default 500). Queues input for a running session and returns observed output; queued does not prove consumed. |
+| `list_sessions` | none | Returns session IDs, shell PIDs, state, exit code and timestamps. Does not reveal original commands. |
+| `force_terminate` | session_id or pid | Requests Windows taskkill /T /F on the managed session's process tree; does not claim completion without a state change. |
+| `list_processes` | none | optional exact name or PID, limit 1–200 (default 100). Returns `start_identity` where readable; CPU is lifetime seconds and working set is bytes. |
+| `kill_process` | pid, expected_name, expected_start_time, confirm=true | Pass `start_identity` from a recent process listing as `expected_start_time`. Verifies the instance and terminates using one Windows process handle. Unreadable identities cannot be terminated. |
+
+Session workers are started on demand and survive agent/CLI disconnects. Their files are in `%LOCALAPPDATA%\Nexus\terminal-sessions` (or `NEXUS_TERMINAL_DIR` for a separate test registry). Each worker writes bounded output to its private session folder. Output is capped at 4 MiB, then the oldest bytes are evicted to retain a tail; the response reports `evicted_lines` and `output_limited`. At most 64 session records are retained; a new start prunes completed records older than seven days. `session_id` is preferred over PID to avoid ambiguity after PID reuse. There is no pseudo-terminal; some terminal applications need an interactive console and will not work with redirected stdin/stdout. PowerShell, CMD and pwsh are supported shell selectors; `pwsh` must be installed separately. Terminal commands can launch other executables, including Node, Python and SSH.
+
+Example call arguments: `start_process` `{ "command": "Get-Date", "shell": "powershell" }`. Then call `read_process_output` with the returned `session_id`, `{ "session_id": "<uuid>", "offset": 0, "length": 50 }`. Use `interact_with_process` only for programs that are designed to read standard input. Use `force_terminate` for any managed Nexus session rather than `kill_process`.
+
+Follow `next_offset` when paging. While a session is running, an unfinished final line is returned again at the same offset so its continuation is not missed. Individual lines longer than the response limit are truncated; their remainder cannot be paged separately.
+
+The desktop app's Agents & tools page groups these tools under Terminal and refreshes its session registry view every ten seconds. It shows IDs, PIDs, shell, recorded state, duration and exit code, without command or output contents. Registry state may remain stale if a worker exits unexpectedly; it is not independent process verification. The catalog is read-only; call tools through the agent's MCP connection.
+
+The terminal worker removes API-key-like variables from the environment before starting a shell. This is not a general secret scanner. Raw command text is held briefly in a local launch file and is removed after the worker reads it. Command and input text are not stored in Nexus monitor metadata. Follow your organization's approval controls; `confirm=true` is a tool argument, not a human approval system.
+
 ## Network investigation
 
 `network_probe` always returns local interfaces. Optional `system` gathers Windows IP configuration, routing table and neighbor cache. Supply `host` for DNS/reverse DNS and optional TCP `ports` (up to100), `ping`, `trace`, or `tls_port`. Supply `url` for a HEAD request with redirects reported but not followed. TLS records peer certificate dates, subject, issuer, negotiated protocol and validation status. `timeout_ms` is100–10000 (default2000).

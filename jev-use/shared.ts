@@ -17,6 +17,7 @@ import { NativeAccessibilitySource } from './typescript/sources.js';
 import { playwrightBrowser } from './playwright-browser.js';
 import { searchContent } from './search-content.js';
 import { searchLocal } from './local-search.js';
+import { startProcess, readProcessOutput, interactWithProcess, listSessions, forceTerminate, listProcesses, killProcess } from './terminal-sessions.js';
 import { probeNetwork } from './network.js';
 import { findFiles, searchStatus } from './find-files.js';
 import { decide } from './decisions.js';
@@ -38,6 +39,13 @@ const tools = [
   tool('jev_classify_failure', 'Classify observed failure evidence with Jev and return a bounded recovery recommendation. Never retries or changes permissions.', { operation: string, evidence: string }, ['operation','evidence']),
   tool('jev_verify_result', 'Judge whether supplied evidence satisfies the request. Returns satisfied/not_satisfied/uncertain. Does not independently observe state.', { request: string, evidence: string }, ['request','evidence']),
   tool('search_status', 'Inspect UFFS index readiness, drive coverage, version, memory and broker mode without shell scripts.', {}, []),
+  tool('start_process', 'Start a Windows command in a managed detached session. Returns session_id and PID. Sessions survive MCP adapter restarts. No PTY or sandbox.', { command: string, shell: { type: 'string', enum: ['powershell', 'cmd', 'pwsh'] }, cwd: string, timeout_ms: { type: 'integer', minimum: 0, maximum: 3000 } }, ['command']),
+  tool('read_process_output', 'Read retained terminal output by absolute line offset (negative for tail), with paging and explicit truncated/evicted counts.', { session_id: string, pid: { type: 'integer', minimum: 1 }, offset: { type: 'integer' }, length: { type: 'integer', minimum: 1, maximum: 200 }, timeout_ms: { type: 'integer', minimum: 0, maximum: 3000 } }, []),
+  tool('interact_with_process', 'Queue stdin input for an existing managed terminal session. Omit append_newline only for protocol-level input.', { session_id: string, pid: { type: 'integer', minimum: 1 }, input: string, append_newline: { type: 'boolean' }, timeout_ms: { type: 'integer', minimum: 0, maximum: 3000 } }, ['input']),
+  tool('list_sessions', 'List detached terminal sessions across Nexus MCP clients, with PID, shell, state and exit status. No command contents.', {}, []),
+  tool('force_terminate', 'Terminate one managed Nexus terminal session and its Windows child process tree.', { session_id: string, pid: { type: 'integer', minimum: 1 } }, []),
+  tool('list_processes', 'List Windows processes with PID, name, cumulative CPU seconds and working-set bytes. Bounded results.', { pid: { type: 'integer', minimum: 1 }, name: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, []),
+  tool('kill_process', 'Kill a non-managed Windows process with exact name and start_identity from list_processes and confirm=true. Prefer force_terminate for Nexus sessions.', { pid: { type: 'integer', minimum: 1 }, expected_name: string, expected_start_time: string, confirm: { type: 'boolean' } }, ['pid', 'expected_name', 'expected_start_time', 'confirm']),
   tool('find_files', 'Find local files/folders quickly through the UFFS NTFS index. Optional query asks Jev to select the best metadata match. Never uses recursive PowerShell. Requires UFFS and its running broker/daemon.', { pattern: string, drive: { type: 'string', default: 'C' }, kind: { type: 'string', enum: ['any','file','folder'], default: 'any' }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, path_filter: string, query: string }, ['pattern']),
   tool('map_files', 'Map Downloads/Documents (or given roots) to projects: UFFS file list, content samples, Jev picks a project per folder/loose file. Writes map.csv + an interactive treemap.html under out_dir (default ~\\tools\\file-map). action "build" re-analyses everything; "view" only rebuilds the treemap and review page from the last map; "serve" starts a loopback-only server so the review pages save with one click (no dialog) and opens root_plan.html; "root_plan" proposes, as a dry run, which existing project folder each loose file in the Downloads/Documents roots belongs in (contents of existing folders are never touched). Read-only; never moves files. Names and short content excerpts are sent to TypeSafe.', { action: { type: 'string', enum: ['build', 'view', 'root_plan', 'serve'], default: 'build' }, roots: { type: 'array', items: string, maxItems: 5 }, out_dir: string, limit_units: { type: 'integer', minimum: 1 }, open: { type: 'boolean', default: false } }, []),
   tool('jev_search_content', 'Search local text with ripgrep and let Jev select the best excerpt. Read-only, scoped, bounded search. Requires rg on PATH. Candidate excerpts are sent to TypeSafe.', { root: string, pattern: string, query: string }, ['root', 'pattern', 'query']),
@@ -176,7 +184,7 @@ let busy = false;
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => withToolKey(params.name, async () => {
   const id = randomUUID();
   const started = Date.now();
-  const monitored = tools.some(tool => tool.name === params.name) && !(params.name === 'search_status' && process.env.HARNESS_MONITOR_OBSERVATION === '1');
+  const monitored = tools.some(tool => tool.name === params.name) && !(['search_status','list_sessions'].includes(params.name) && process.env.HARNESS_MONITOR_OBSERVATION === '1');
   let inputTokens = 0, outputTokens = 0, usageResponses = 0;
   const addUsage = (value: unknown) => {
     const usage = value as { input_tokens?: number; output_tokens?: number } | undefined;
@@ -211,7 +219,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => withToolKe
     const limit = args.max_steps ?? 10;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid max_steps');
     const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result'].includes(params.name);
-    const goal = decisionTool || ['jev_search_content', 'search_local', 'network_probe', 'find_files', 'search_status', 'map_files'].includes(params.name) ? '' : required('goal');
+    const goal = decisionTool || ['jev_search_content', 'search_local', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process'].includes(params.name) ? '' : required('goal');
     let output: string;
     if (decisionTool) {
       output = await decide(params.name, args, addUsage);
@@ -261,6 +269,20 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => withToolKe
     } else if (params.name === 'search_local') {
       if (args.regex !== undefined && typeof args.regex !== 'boolean') throw new Error('Invalid regex');
       output = JSON.stringify(await searchLocal({ root: required('root'), pattern: required('pattern'), glob: args.glob === undefined ? undefined : required('glob'), regex: args.regex as boolean | undefined, limit: args.limit as number | undefined }));
+    } else if (params.name === 'start_process') {
+      output = JSON.stringify(await startProcess({ command: args.command as string, shell: args.shell as string | undefined, cwd: args.cwd as string | undefined, timeout_ms: args.timeout_ms as number | undefined }));
+    } else if (params.name === 'read_process_output') {
+      output = JSON.stringify(await readProcessOutput({ session_id: args.session_id as string | undefined, pid: args.pid as number | undefined, offset: args.offset as number | undefined, length: args.length as number | undefined, timeout_ms: args.timeout_ms as number | undefined }));
+    } else if (params.name === 'interact_with_process') {
+      output = JSON.stringify(await interactWithProcess({ session_id: args.session_id as string | undefined, pid: args.pid as number | undefined, input: args.input as string, append_newline: args.append_newline as boolean | undefined, timeout_ms: args.timeout_ms as number | undefined }));
+    } else if (params.name === 'list_sessions') {
+      output = JSON.stringify(await listSessions());
+    } else if (params.name === 'force_terminate') {
+      output = JSON.stringify(await forceTerminate({ session_id: args.session_id as string | undefined, pid: args.pid as number | undefined }));
+    } else if (params.name === 'list_processes') {
+      output = JSON.stringify(await listProcesses({ pid: args.pid as number | undefined, name: args.name as string | undefined, limit: args.limit as number | undefined }));
+    } else if (params.name === 'kill_process') {
+      output = JSON.stringify(await killProcess({ pid: args.pid as number, expected_name: required('expected_name'), expected_start_time: required('expected_start_time'), confirm: args.confirm as boolean }));
     } else if (params.name === 'network_probe') {
       if (args.ports !== undefined && !Array.isArray(args.ports)) throw new Error('Invalid ports');
       for (const key of ['system', 'ping', 'trace']) if (args[key] !== undefined && typeof args[key] !== 'boolean') throw new Error('Invalid ' + key);
@@ -283,7 +305,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => withToolKe
     const status = metrics.status === 'done' || metrics.status === 'verified' || (params.name === 'search_status' && metrics.status === 'idle') ? 'passed'
       : metrics.status && metrics.status !== 'error' ? 'blocked' : 'error';
     const decisions = metrics.decisions ?? metrics.calls;
-    record({ status, ms: Date.now() - started, decisions: decisions ?? null, steps: metrics.steps ?? metrics.trace?.length ?? null, backend: metrics.backend ?? null, session: metrics.session ?? null, ...usageMetrics(decisions) });
+    record({ status, ms: Date.now() - started, decisions: decisions ?? null, steps: metrics.steps ?? metrics.trace?.length ?? null, backend: metrics.backend ?? null, session: metrics.session_id ?? metrics.session ?? null, ...usageMetrics(decisions) });
     return { content: [{ type: 'text', text: output }] };
   } catch (error) {
     record({ status: 'error', ms: Date.now() - started, ...usageMetrics() });

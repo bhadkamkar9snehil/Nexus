@@ -83,3 +83,17 @@ The owner authorized GitHub Nexus publication on 13 November 2026. GitLab remain
 - Jev outcome checking judges supplied evidence; it does not independently inspect an application.
 - UFFS metadata and bounded text retrieval are not exhaustive content search or PDF/Office/OCR extraction.
 - Source changes were validated without upgrading third-party engines. Playwright CLI's pinned alpha dependency remains disclosed.
+
+## Terminal and process tools — 2026-11-20
+
+An isolated source worktree reproduced a paging defect where a line completed after a partial read was skipped by the returned cursor. The focused regression failed before the correction and passed afterward. On the laptop, the full suite passed 135 tests and Test-Package.ps1 passed after the correction. Windows runner validation and release remain pending. Oversized individual lines are truncated and cannot be paged by character offset.
+
+The output-cap test later reproduced a dead worker with its last state still marked running. Temporary diagnostics captured a Windows `EPERM` on atomic state-file replacement during concurrent reads. The worker now retries transient sharing failures for up to two seconds for state and output replacement; ten focused concurrent-read runs passed locally. The diagnostic output was removed; Windows CI and installed-runtime acceptance remain separate checks.
+
+External process termination now requires the start identity observed in `list_processes` and verifies it with the image name using the same Windows handle used to terminate. A synthetic child with a deliberately stale identity was previously terminated; the regression now rejects it, including a direct check of the handle-level guard. A matching synthetic child can still be terminated. Managed-session process-tree and client acceptance require separate checks.
+
+The desktop catalog was tested in an isolated loopback monitor: all seven Terminal tools and the required termination identity were visible, session data contained only the documented metadata, and the rendered smoke checks passed at desktop and mobile sizes in light and dark themes. The session panel reports registry state, which can be stale after an unexpected worker exit. The monitor remains read-only and does not execute the tools.
+
+The Nexus terminal batch adds seven managed MCP tools to the Windows source checkout. The full local regression suite passed 134 of 134 tests. `Test-Package.ps1` passed source TypeScript checks, monitor and terminal-worker syntax, PowerShell parsing, and MCP tool discovery. Focused Windows checks covered output paging and eviction, interactive input, CMD, PID-name validation, managed session termination, and a session that remained accessible after the original MCP client disconnected. These checks used separate test directories and did not replace the installed Nexus application.
+
+The implementation uses detached per-session workers with retained output. It does not provide a PTY or an operating-system sandbox. Windows credentials and permissions remain those of the logged-in user. GitLab CI, release package extraction, and installation on a separate machine require independent verification. Existing monitor screenshots are unchanged because the new source has not been deployed.
