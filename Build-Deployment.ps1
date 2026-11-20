@@ -12,7 +12,8 @@ $runtime = Join-Path $stage 'runtime'
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 Push-Location (Join-Path $stage 'jev-use')
 try {
-    & npm.cmd ci --ignore-scripts
+    $env:NPM_CONFIG_CACHE = Join-Path $env:LOCALAPPDATA 'NexusBuildCache\npm'
+    & npm.cmd ci --ignore-scripts --prefer-offline --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed.' }
 } finally { Pop-Location }
 & node (Join-Path $stage 'monitor-ui\build.mjs')
@@ -20,11 +21,18 @@ if ($LASTEXITCODE -ne 0) { throw 'Monitor build failed.' }
 # The Windows CI baseline is also the redistributable Node runtime.
 $nodeVersion = 'v22.22.0'
 $nodeAsset = "node-$nodeVersion-win-x64.zip"
-$nodeZip = Join-Path $stageRoot $nodeAsset
-Invoke-WebRequest "https://nodejs.org/dist/$nodeVersion/$nodeAsset" -UseBasicParsing -OutFile $nodeZip
-$sums = (Invoke-WebRequest "https://nodejs.org/dist/$nodeVersion/SHASUMS256.txt" -UseBasicParsing).Content
-$expected = (($sums -split "`n" | Where-Object { $_.Trim().EndsWith(" $nodeAsset") }) -split '\s+')[0]
-if (-not $expected -or (Get-FileHash -LiteralPath $nodeZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Node checksum mismatch.' }
+# Download once and keep the verified archive; the checksum is re-checked on every use.
+$cache = Join-Path $env:LOCALAPPDATA 'NexusBuildCache'
+New-Item -ItemType Directory -Path $cache -Force | Out-Null
+$nodeZip = Join-Path $cache $nodeAsset
+$expectedFile = Join-Path $cache "$nodeAsset.sha256"
+if (-not (Test-Path -LiteralPath $nodeZip) -or -not (Test-Path -LiteralPath $expectedFile)) {
+    Invoke-WebRequest "https://nodejs.org/dist/$nodeVersion/$nodeAsset" -UseBasicParsing -OutFile $nodeZip
+    $sums = (Invoke-WebRequest "https://nodejs.org/dist/$nodeVersion/SHASUMS256.txt" -UseBasicParsing).Content
+    Set-Content -LiteralPath $expectedFile -Value ((($sums -split "`n" | Where-Object { $_.Trim().EndsWith(" $nodeAsset") }) -split '\s+')[0]) -Encoding ASCII
+}
+$expected = (Get-Content -LiteralPath $expectedFile -Raw).Trim()
+if (-not $expected -or (Get-FileHash -LiteralPath $nodeZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { Remove-Item -LiteralPath $nodeZip, $expectedFile -Force; throw 'Node checksum mismatch.' }
 Expand-Archive -LiteralPath $nodeZip -DestinationPath $stageRoot
 $nodeFolder = Join-Path $stageRoot "node-$nodeVersion-win-x64"
 [IO.File]::Copy((Join-Path $nodeFolder 'node.exe'), (Join-Path $runtime 'node.exe'))
@@ -58,11 +66,11 @@ $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
 if ($sevenZip) {
     Push-Location $stageRoot
     try {
-        & $sevenZip.Source a -tzip -mx=5 -bd -bso0 $output 'shared-computer-use'
+        & $sevenZip.Source a -tzip -mx=1 -bd -bso0 $output 'shared-computer-use'
         if ($LASTEXITCODE -ne 0) { throw 'Deployment archive creation failed.' }
     } finally { Pop-Location }
 } else {
-    [IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Optimal,$true)
+    [IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Fastest,$true)
 }
 Get-Item -LiteralPath $output | Select-Object FullName,Length
 Get-FileHash -LiteralPath $output -Algorithm SHA256

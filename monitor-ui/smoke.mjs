@@ -77,7 +77,7 @@ try{
  await go('Usage & cost');
  await page.getByRole('columnheader',{name:'Coverage',exact:true}).waitFor();
  assert.equal(await page.locator('pre').count(),0);
- await go('Appearance');await page.getByRole('button',{name:'Use #a78bfa',exact:true}).click();
+ await go('Settings');await page.getByRole('button',{name:'Use #a78bfa',exact:true}).click();
  assert.equal(await page.getByRole('button',{name:'Use #a78bfa',exact:true}).getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'Use dark theme',exact:true}).click();
  await go('Command centre');await screenshot('overview-dark.png');

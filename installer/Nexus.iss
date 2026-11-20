@@ -23,8 +23,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
-Compression=lzma2/fast
-SolidCompression=yes
+Compression=zip/1
+SolidCompression=no
 CloseApplications=yes
 
 [Tasks]

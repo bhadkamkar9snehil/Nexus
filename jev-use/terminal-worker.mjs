@@ -56,7 +56,11 @@ function appendOutput(text) {
   replaceFile(temp, outputFile);
   save();
 }
+// Heartbeat: readers treat a live-looking session with a stale heartbeat as a lost worker.
+let pulse;
+const beat = () => { try { writeFileSync(join(folder, 'heartbeat'), String(Date.now())); } catch { /* next beat */ } };
 function fail(error) {
+  clearInterval(pulse);
   state.status = 'error';
   state.error = error instanceof Error ? error.message : String(error);
   state.ended_at = Date.now();
@@ -75,6 +79,8 @@ try {
   rmSync(launchFile, { force: true });
   mkdirSync(inbox, { recursive: true });
   writeFileSync(outputFile, '');
+  beat();
+  pulse = setInterval(beat, 2000);
   const binaries = {
     powershell: [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoLogo', '-NoProfile', '-Command', launch.command]],
     cmd: [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), ['/D', '/S', '/C', launch.command]],
@@ -127,6 +133,7 @@ try {
   }, 100);
   child.once('close', (code, signal) => {
     clearInterval(poll);
+    clearInterval(pulse);
     if (state.status === 'error') return;
     appendOutput(decoders[0].end() + decoders[1].end());
     state.status = stopping ? 'terminated' : 'exited';

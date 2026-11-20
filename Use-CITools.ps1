@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+# Puts Node (with npm) and ripgrep on PATH for CI jobs when the runner lacks them. Dot-source it.
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     $version = 'v22.22.0'
     $asset = "node-$version-win-x64.zip"
@@ -22,13 +22,8 @@ if (-not (Get-Command rg.exe -ErrorAction SilentlyContinue)) {
     Expand-Archive -LiteralPath $zip -DestinationPath $tools -Force
     $env:PATH = (Join-Path $tools 'ripgrep-15.1.0-x86_64-pc-windows-msvc') + ';' + $env:PATH
 }
-Push-Location (Join-Path $PSScriptRoot 'jev-use')
-try {
-    & npm.cmd ci --ignore-scripts
-    if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed.' }
-    & npm.cmd test
-    if ($LASTEXITCODE -ne 0) { throw 'Reference tests failed.' }
-} finally { Pop-Location }
-& (Join-Path $PSScriptRoot 'Test-Package.ps1')
-& node (Join-Path $PSScriptRoot 'monitor-ui\build.mjs')
-if ($LASTEXITCODE -ne 0) { throw 'Monitor production build failed.' }
+# GitLab API base reachable from this runner: the host the job cloned from (CI_API_V4_URL points at an address the runner cannot reach).
+$ciRemote = [uri](git remote get-url origin)
+$ciApi = if ($ciRemote.Host) { "$($ciRemote.Scheme)://$($ciRemote.Authority)/api/v4" } else { $env:CI_API_V4_URL }
+# Keep the npm download cache between jobs so npm ci installs from disk.
+$env:NPM_CONFIG_CACHE = Join-Path $env:LOCALAPPDATA 'NexusBuildCache\npm'

@@ -6,8 +6,6 @@ $publish = Join-Path $env:TEMP ('nexus-desktop-publish-' + [guid]::NewGuid())
 try {
     & dotnet publish (Join-Path $PSScriptRoot 'desktop\Nexus.Desktop.csproj') --configuration Release --output $publish
     if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
-    & dotnet run --project (Join-Path $PSScriptRoot 'tests\DesktopAssemblyCheck\DesktopAssemblyCheck.csproj') --configuration Release -- (Join-Path $publish 'Nexus.Desktop.dll')
-    if ($LASTEXITCODE -ne 0) { throw 'Published desktop assembly validation failed.' }
     New-Item -ItemType Directory -Path $PayloadDir -Force | Out-Null
     Copy-Item -Path (Join-Path $publish '*') -Destination $PayloadDir -Recurse -Force
     & dotnet run --project (Join-Path $PSScriptRoot 'tests\DesktopAssemblyCheck\DesktopAssemblyCheck.csproj') --configuration Release -- (Join-Path $PayloadDir 'Nexus.Desktop.dll')

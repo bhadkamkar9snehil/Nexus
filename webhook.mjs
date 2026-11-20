@@ -1,0 +1,74 @@
+// GitLab webhook receiver: lets GitLab push release and pipeline events to this computer.
+// Listens on the LAN, accepts only POST /gitlab-webhook with the shared secret, keeps the last events in memory.
+import { createServer } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { receive, sendMessage } from './peers.mjs';
+import { accepts, loadWebhookConfig } from './webhook-config.mjs';
+import { notify } from './notify.mjs';
+
+export const webhookPort = Number(process.env.NEXUS_WEBHOOK_PORT || 8770);
+export const events = [];
+const kinds = new Set(['release', 'pipeline', 'merge_request', 'push', 'tag_push', 'note', 'issue']);
+
+export async function webhookSecret(root) {
+  const file = join(root, 'secrets', 'webhook-secret.txt');
+  try { return (await readFile(file, 'utf8')).trim(); } catch { /* first run */ }
+  const secret = randomBytes(24).toString('hex');
+  await mkdir(join(root, 'secrets'), { recursive: true });
+  await writeFile(file, secret);
+  return secret;
+}
+
+function summarize(kind, body) {
+  const project = body.project?.path_with_namespace ?? '';
+  if (kind === 'release') return { project, title: `${body.name || body.tag} ${body.action || ''}`.trim(), tag: body.tag };
+  if (kind === 'pipeline') return { project, title: `Pipeline ${body.object_attributes?.status} on ${body.object_attributes?.ref}` };
+  if (kind === 'merge_request') return { project, title: `MR !${body.object_attributes?.iid} ${body.object_attributes?.action}: ${body.object_attributes?.title}` };
+  if (kind === 'note') return { project, title: `Comment by ${body.user?.username}` };
+  if (kind === 'issue') return { project, title: `Issue #${body.object_attributes?.iid} ${body.object_attributes?.action}: ${body.object_attributes?.title}` };
+  return { project, title: `${kind} to ${body.ref ?? ''}` };
+}
+
+export async function startWebhook(root) {
+  const secret = Buffer.from(await webhookSecret(root));
+  const server = createServer((req, res) => {
+    const done = (status) => { res.writeHead(status).end(); };
+    if (req.method === 'POST' && req.url === '/peer/message') {
+      let size = 0; const chunks = [];
+      req.on('data', (c) => { size += c.length; if (size > 128 * 1024) req.destroy(); else chunks.push(c); });
+      req.on('end', async () => {
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          done(await receive(root, req.headers.authorization, payload, m => notify(`Message from ${m.peer}`, m.subject || m.body)));
+        } catch { done(400); }
+      });
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/gitlab-webhook') return done(404);
+    const given = Buffer.from(String(req.headers['x-gitlab-token'] ?? ''));
+    if (given.length !== secret.length || !timingSafeEqual(given, secret)) return done(401);
+    let size = 0; const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size > 1024 * 1024) req.destroy(); else chunks.push(c); });
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const kind = String(body.object_kind ?? req.headers['x-gitlab-event'] ?? '').toLowerCase().replace(' hook', '');
+        if (!kinds.has(kind)) return done(202);
+        const event = { id: randomBytes(4).toString('hex'), at: Date.now(), kind, ...summarize(kind, body) };
+        const config = await loadWebhookConfig(root);
+        if (!accepts(config, kind, event.project)) return done(202);
+        events.unshift(event);
+        if (config.notify.includes(kind)) notify(event.project || 'GitLab', event.title);
+        // Forward a copy to the chosen peers; a peer that is off or offline must not fail GitLab's delivery.
+        for (const to of config.forward) sendMessage(root, { to, kind: 'mail', subject: `GitLab: ${event.title}`.slice(0, 200), body: JSON.stringify(event) }).catch(() => {});
+        events.length = Math.min(events.length, 50);
+        done(200);
+      } catch { done(400); }
+    });
+  });
+  server.on('error', (e) => console.error('Webhook receiver unavailable: ' + e.message));
+  server.listen(webhookPort, '0.0.0.0', () => console.log('GitLab webhook receiver on port ' + webhookPort));
+  return server;
+}

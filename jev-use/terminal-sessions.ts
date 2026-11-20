@@ -27,7 +27,21 @@ const live = (state: SessionState) => ['starting', 'running'].includes(state.sta
 
 async function stateById(id: string): Promise<SessionState> {
   if (!validId(id)) throw new Error('Invalid session_id');
-  return JSON.parse(await readFile(join(workDir(id), 'state.json'), 'utf8')) as SessionState;
+  const state = JSON.parse(await readFile(join(workDir(id), 'state.json'), 'utf8')) as SessionState;
+  return live(state) ? reconcile(state) : state;
+}
+// A live worker touches its heartbeat file every ~2 s. A live-looking session whose heartbeat is stale was lost
+// (crash, kill, PID reuse): record that instead of reporting it running forever. Output already written is kept.
+const HEARTBEAT_STALE_MS = 10000;
+async function reconcile(state: SessionState): Promise<SessionState> {
+  const folder = workDir(state.session_id);
+  const last = await stat(join(folder, 'heartbeat')).then(s => s.mtimeMs, () => state.started_at);
+  if (Date.now() - last <= HEARTBEAT_STALE_MS) return state;
+  const lost: SessionState = { ...state, status: 'error', ended_at: Date.now(),
+    error: 'Worker stopped unexpectedly; output written so far is kept. The command process may still be running: check list_processes.' };
+  const temp = join(folder, `state.${randomUUID()}.tmp`);
+  await writeFile(temp, JSON.stringify(lost)).then(() => rename(temp, join(folder, 'state.json'))).catch(() => rm(temp, { force: true }));
+  return lost;
 }
 async function allStates(): Promise<SessionState[]> {
   try {
@@ -60,7 +74,7 @@ async function prune() {
   await Promise.all(expired.map(s => rm(workDir(s.session_id), { recursive: true, force: true })));
   if (states.length - expired.length >= MAX_SESSIONS) throw new Error('Session registry full; remove completed old sessions');
 }
-async function snapshot(session: SessionState, offset: number, length: number) {
+async function snapshot(session: SessionState, offset: number, length: number, charOffset = 0) {
   const raw = await readFile(join(workDir(session.session_id), 'output.log'), 'utf8').catch(() => '');
   const lines = raw.length ? raw.split(/\r\n|\n|\r/) : [];
   if (lines.length > 0 && /[\r\n]$/.test(raw)) lines.pop();
@@ -69,16 +83,19 @@ async function snapshot(session: SessionState, offset: number, length: number) {
   const start = offset < 0 ? Math.max(baseLine, total + offset) : Math.max(baseLine, offset);
   let idx = Math.min(lines.length, Math.max(0, start - baseLine));
   const output: string[] = [];
-  let chars = 0, lineTruncated = false;
+  let chars = 0, lineTruncated = false, continueAt: number | null = null;
+  const firstIdx = idx;
   while (idx < lines.length && output.length < length) {
-    const line = lines[idx];
+    // char_offset resumes inside the first line when a previous page cut an oversized line.
+    const skip = idx === firstIdx && offset >= baseLine ? charOffset : 0;
+    const line = skip ? lines[idx].slice(skip) : lines[idx];
     const room = MAX_RESPONSE_CHARS - chars - (output.length ? 1 : 0);
     if (room < 1) break;
     if (line.length > room) {
       if (output.length) break;
       output.push(line.slice(0, room));
       lineTruncated = true;
-      idx++;
+      continueAt = skip + room;
       break;
     }
     output.push(line);
@@ -87,11 +104,13 @@ async function snapshot(session: SessionState, offset: number, length: number) {
   }
   // Re-read an unfinished last line so a later continuation cannot be skipped.
   const partial = live(session) && raw.length > 0 && !/[\r\n]$/.test(raw) && idx === lines.length && output.length > 0;
-  const next = baseLine + idx - (partial ? 1 : 0);
+  // An oversized line stays the current line: the next page continues it at next_char_offset, so nothing is lost.
+  const next = continueAt !== null ? baseLine + idx : baseLine + idx - (partial ? 1 : 0);
   return {
     content: output.join('\n'), read_from: start, lines_read: output.length,
-    total_lines: total, next_offset: next < total ? next : null,
-    truncated: baseLine + idx < total || lineTruncated || session.output_limited,
+    total_lines: total, next_offset: continueAt !== null || next < total ? next : null,
+    next_char_offset: continueAt,
+    truncated: continueAt !== null || baseLine + idx < total || session.output_limited,
     line_truncated: lineTruncated, evicted_lines: baseLine,
   };
 }
@@ -159,18 +178,18 @@ export async function startProcess(args: {
     exit_code: session.exit_code, ...page, decisions: 0 };
 }
 export async function readProcessOutput(args: SessionSelector & {
-  offset?: number; length?: number; timeout_ms?: number;
+  offset?: number; length?: number; timeout_ms?: number; char_offset?: number;
 }) {
   validateSelector(args);
-  const offset = args.offset ?? 0, length = args.length ?? 50, wait = args.timeout_ms ?? 0;
-  if (!whole(offset, -1000000000, 1000000000) || !whole(length, 1, MAX_LINE_COUNT) || !whole(wait, 0, WAIT_CAP))
-    throw new Error('Invalid offset, length or timeout_ms');
+  const offset = args.offset ?? 0, length = args.length ?? 50, wait = args.timeout_ms ?? 0, charOffset = args.char_offset ?? 0;
+  if (!whole(offset, -1000000000, 1000000000) || !whole(length, 1, MAX_LINE_COUNT) || !whole(wait, 0, WAIT_CAP) || !whole(charOffset, 0, 1000000000))
+    throw new Error('Invalid offset, length, timeout_ms or char_offset');
   let session = await resolveSession(args);
   if (wait && offset >= 0) session = await waitForUpdate(session.session_id, offset, wait);
   else session = await stateById(session.session_id);
   return { status: 'done', session_id: session.session_id, pid: session.pid,
     state: session.status, exit_code: session.exit_code, error: session.error,
-    ...await snapshot(session, offset, length), decisions: 0 };
+    ...await snapshot(session, offset, length, charOffset), decisions: 0 };
 }
 export async function interactWithProcess(args: SessionSelector & {
   input: string; timeout_ms?: number; append_newline?: boolean;

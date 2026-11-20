@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { runtimeStatus } from './runtime-status.mjs';
+import { events, startWebhook, webhookPort } from './webhook.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
@@ -71,6 +72,7 @@ createServer(async (req, res) => {
       return send(200,'application/json',JSON.stringify(await runtimeCheck));
     } catch {return send(503,'text/plain','Runtime observations unavailable. The monitor remains online.');}
   }
+  if (req.url === '/webhook-events') return send(200, 'application/json', JSON.stringify({ port: webhookPort, events }));
   if (req.url === '/sessions') {
     try {
       const result = await inspect('list_sessions');
@@ -106,6 +108,7 @@ createServer(async (req, res) => {
   catch { send(500, 'text/plain', 'Could not read the run log'); }
 }).listen(port, '127.0.0.1', async () => {
   console.log('Computer & Browser Use Monitor: ' + origin);
+  startWebhook(import.meta.dirname).catch(e => console.error('Webhook receiver not started: ' + e.message));
   const session=process.env.HARNESS_MONITOR_SESSION;
   if(session){
     const marker=new URL('./.monitor-session',import.meta.url);

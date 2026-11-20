@@ -1,6 +1,8 @@
 # Upstream software
 
 - Nexus terminal suite adapts Desktop Commander MCP's MIT-licensed terminal session design, Windows process-tree termination behavior, bounded output and separate managed-session/external-process operations. Reference: https://github.com/wonderwhy-er/DesktopCommanderMCP (`src/terminal-manager.ts`, `src/tools/improved-process-tools.ts`, `src/tools/process.ts`, and `src/utils/process-tree.ts`). Nexus uses a distinct per-session detached worker with local state for cross-agent persistence. No upstream source file was copied into Nexus.
+- `nexus_read_document` uses established npm libraries: mammoth 1.12.0 (BSD-2-Clause) for .docx, exceljs 4.4.0 (MIT) for .xlsx and unpdf 1.6.2 (MIT, bundling Mozilla PDF.js, Apache-2.0) for .pdf. No parser is written in Nexus.
+- `nexus_read_file` adapts the line-pagination and filesystem validation design from Desktop Commander MCP (MIT), https://github.com/wonderwhy-er/DesktopCommanderMCP, `src/tools/filesystem.ts`. Nexus implementation is separate and text-only, with distinct read-root and sensitive-path policy. Retain upstream project attribution; no Desktop Commander code is copied verbatim in this first tool.
 
 
 - Monitor UI reuses internal `ssm/Chitragupta` source at commit 3094d86ed0a3dcfa7745dabbd2b0e5b40adfc328. Attribution, exact files and adaptations are recorded in monitor-ui/PROVENANCE.md. No Chitragupta runtime or knowledge store is modified or required.

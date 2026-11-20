@@ -1,0 +1,11 @@
+type Allow = { mail?: boolean; chat?: boolean };
+type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean } };
+type Message = { id: string; box: 'in' | 'out'; at: number; peer: string; kind: string; subject?: string; body: string; read?: boolean };
+export function listPeers(root: string): Promise<Peer[]>;
+export function addPeer(root: string, peer: { name: string; url: string; outbound: string; allow?: Allow }): Promise<Peer & { inbound: string }>;
+export function setPeer(root: string, name: string, change: { enabled?: boolean; allow?: Allow }): Promise<Peer>;
+export function removePeer(root: string, name: string): Promise<void>;
+export function readMailbox(root: string, options?: { box?: 'in' | 'out'; unread?: boolean; limit?: number }): Promise<Message[]>;
+export function markRead(root: string, ids: string[]): Promise<void>;
+export function sendMessage(root: string, message: { to: string; kind?: string; subject?: string; body: string }, fetcher?: typeof fetch): Promise<{ id: string; delivered: boolean; from: string }>;
+export function receive(root: string, authorization: string | undefined, payload: unknown, onMessage?: (message: Message) => void): Promise<number>;

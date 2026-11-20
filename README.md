@@ -130,6 +130,10 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `find_files` | Find file and folder names through the UFFS NTFS metadata index. |
 | `search_status` | Inspect index readiness, drive coverage and memory. |
 | `search_local` | Search file contents locally, including large files, with bounded results. |
+| `nexus_read_file` | Read UTF-8 text files with line pagination, restricted roots and a 48 KiB output cap; does not parse PDF or Office files. |
+| `nexus_read_document` | Read text from Word, Excel and PDF files, paged by line, row (per sheet) or page. |
+| `nexus_write_file` | Create or (with `overwrite` and an optional content hash) replace a UTF-8 text file atomically inside the write roots. |
+| `nexus_edit_file` | Replace exact text in a file only when it occurs the expected number of times. |
 | `jev_search_content` | Find scoped text and send selected excerpts to Jev for ranking. |
 | `network_probe` | Inspect local network information or explicitly requested hosts, ports, URLs or IPv4 subnet. |
 | `start_process` | Start a Windows command in a managed terminal session with a session ID and PID. |
@@ -137,6 +141,9 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `interact_with_process` | Queue input for an active terminal session. |
 | `list_sessions` | Inspect terminal sessions across Codex, Claude and CLI processes. |
 | `force_terminate` | Stop a managed terminal session and its process tree. |
+| `nexus_peers` | Connect to other Nexus installations, switch them on/off and set mail/chat permissions. |
+| `nexus_mail` | Send and read mail or chat between agents over peer connections. |
+| `nexus_webhooks` | Choose which GitLab events and projects the receiver accepts, which notify, and which peers get a copy. |
 | `list_processes` | Inspect Windows PID, process name, cumulative CPU seconds and working-set memory. |
 | `kill_process` | Stop a non-managed process using its PID, exact name, observed start identity and explicit confirmation. |
 | `map_files` | Build file maps, review pages and dry-run organization proposals; it does not move files. |

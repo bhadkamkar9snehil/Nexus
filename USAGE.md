@@ -32,6 +32,18 @@ Setup also registers `shared_cua` as `runtime\cua-driver.exe mcp --socket \\.\pi
 
 Inline JSON and `@file.json` both work in PowerShell5.1 (the script passes inline JSON through a temporary file). The CLI calls the same MCP server and emits the same compact monitoring metadata. Shell output is machine-readable; the product UI renders readable views rather than dumping it.
 
+## Text file reading
+
+`nexus_read_file` is a read-only UTF-8 text reader based on Desktop Commander's paginated `read_file` design. It is not a PDF, Office, image or URL reader. Required: `path` (absolute local file path). Optional: `offset` (zero-based first line, negative to read from the end; default 0), `length` (1–250 lines; default 100). Results contain `start_line` (one-based), `total_lines`, `content`, `next_offset`, and `truncated`. Output is capped at 48 KiB; files over 8 MiB, binary files, invalid UTF-8 and protected paths are rejected. The result also carries the file's `sha256`.
+
+`nexus_read_document` reads text from `.docx` (mammoth), `.xlsx` (exceljs) and `.pdf` (unpdf) inside the read roots, up to 25 MiB, with the same 48 KiB output cap. Pages by `offset` and `length`: docx by line (default 200), pdf by page (default 5, `total_pages` reported), xlsx by row (default 100; `sheet` picks a sheet, the result always lists `sheets`; up to 50 columns, tab-separated, formulas show their cached result). Scanned PDFs carry no text layer and return a hint instead of OCR. Images, legacy `.doc`/`.xls`, macros, comments and embedded objects are not read. `nexus_read_file` on these files now points to this tool.
+
+`nexus_write_file` creates a UTF-8 text file (up to 1 MiB; `path`, `content`). Replacing an existing file requires `overwrite=true`; passing the `sha256` from `nexus_read_file` as `expected_sha256` refuses the write if the file changed since it was read. `nexus_edit_file` replaces exact `old_text` with `new_text` and changes nothing unless the text occurs exactly `expected_replacements` times (default 1). Both write through a temp file and rename, accept only the write roots (`NEXUS_WRITE_ROOTS`, `;`-separated; default Documents and Downloads) and refuse protected paths, binary and non-UTF-8 files.
+
+The default read roots are the current user's Documents and Downloads directories. Set `NEXUS_READ_ROOTS` to a semicolon-separated list of absolute directories before launching the MCP server to override them. Paths are resolved before validation, including junctions and symbolic links; inaccessible or out-of-root paths fail. Generic reads exclude `.git`, `secrets`, browser profiles, `node_modules`, `.env` variants, private-key formats and `runs.jsonl`. This is a scope control, not a complete secret scanner. Only send returned file content to an external model when authorized.
+
+Example MCP arguments: `{ "path": "C:\\\\Users\\\\Admin\\\\Documents\\\\note.txt", "offset": 0, "length": 100 }`.
+
 ## File names and contents
 
 | Tool | Required | Optional / limits |
@@ -64,11 +76,21 @@ Session workers are started on demand and survive agent/CLI disconnects. Their f
 
 Example call arguments: `start_process` `{ "command": "Get-Date", "shell": "powershell" }`. Then call `read_process_output` with the returned `session_id`, `{ "session_id": "<uuid>", "offset": 0, "length": 50 }`. Use `interact_with_process` only for programs that are designed to read standard input. Use `force_terminate` for any managed Nexus session rather than `kill_process`.
 
-Follow `next_offset` when paging. While a session is running, an unfinished final line is returned again at the same offset so its continuation is not missed. Individual lines longer than the response limit are truncated; their remainder cannot be paged separately.
+Follow `next_offset` when paging. While a session is running, an unfinished final line is returned again at the same offset so its continuation is not missed. A line longer than the response limit is returned in pieces: while `next_char_offset` is not null, repeat the call with the same `offset` and `char_offset` set to it; nothing is lost.
 
-The desktop app's Agents & tools page groups these tools under Terminal and refreshes its session registry view every ten seconds. It shows IDs, PIDs, shell, recorded state, duration and exit code, without command or output contents. Registry state may remain stale if a worker exits unexpectedly; it is not independent process verification. The catalog is read-only; call tools through the agent's MCP connection.
+The desktop app's Agents & tools page groups these tools under Terminal and refreshes its session registry view every ten seconds. It shows IDs, PIDs, shell, recorded state, duration and exit code, without command or output contents. Each worker refreshes a heartbeat every two seconds; a session that still looks running but has had no heartbeat for ten seconds is reported as `error` ("Worker stopped unexpectedly", output kept, the command process may still be running), so a crashed worker or a reused PID never shows as running. This is registry reconciliation, not a process inspection: use `list_processes` to confirm the command itself. The catalog is read-only; call tools through the agent's MCP connection.
 
 The terminal worker removes API-key-like variables from the environment before starting a shell. This is not a general secret scanner. Raw command text is held briefly in a local launch file and is removed after the worker reads it. Command and input text are not stored in Nexus monitor metadata. Follow your organization's approval controls; `confirm=true` is a tool argument, not a human approval system.
+
+## Peers, mail and chat
+
+Nexus installations connect directly, with no hub. Each side adds the other with `nexus_peers` `add` (peer name, `http://host:8770`, and the token the peer gave us); the result contains the token to give back to that peer. Switch a peer off or change what it may send with `set` (`enabled`, `allow_mail`, `allow_chat`); a switched-off or denied peer is refused in both directions. Tokens are stored in `secrets\peers.json` and never listed.
+
+`nexus_mail` `send` delivers `mail` or `chat` (subject up to 200 characters, body up to 64 KB) to a peer's receiver on the webhook port (8770, LAN). `inbox`/`outbox` list messages (`unread_only` for new), `mark_read` clears them. Incoming messages and GitLab release, pipeline and merge request events raise a Windows notification (`NEXUS_NOTIFY=0` disables). Delivery is synchronous: an offline peer returns an error and nothing is queued.
+
+`nexus_webhooks` configures the GitLab receiver. In GitLab add a webhook with the `receiver_url` from `status` and the secret token from `secrets\webhook-secret.txt` (never returned by the tool). `configure` chooses the accepted event kinds (`release`, `pipeline`, `merge_request`, `push`, `tag_push`, `note`, `issue`), the GitLab projects (paths such as `ssm/shared-computer-use`; empty means all), which kinds raise a Windows notification, and which peers (`forward`) receive each accepted event as mail. Events that are not accepted get HTTP 202 and are dropped; the Updates page shows the accepted events. A forwarded event goes only to peers that are on and allowed mail; failures never fail GitLab's delivery.
+
+`jev_desktop` runs one task at a time across every agent on the computer. A second agent receives "Desktop is in use by another agent" naming the holder; the lock is refreshed every two seconds and taken over ten seconds after a crashed holder stops refreshing it.
 
 ## Network investigation
 

@@ -8,7 +8,7 @@ var metadata = pe.GetMetadataReader();
 var types = metadata.TypeDefinitions.Select(h => metadata.GetTypeDefinition(h))
     .Where(t => metadata.GetString(t.Namespace) == "Nexus.Desktop")
     .ToDictionary(t => metadata.GetString(t.Name));
-foreach (var name in new[] { "App", "MainWindow", "SettingsWindow" })
+foreach (var name in new[] { "App", "MainWindow", "SettingsHost" })
     if (!types.ContainsKey(name)) throw new InvalidDataException($"Published desktop assembly is missing {name}.");
 var app = types["App"];
 if (!app.GetMethods().Select(h => metadata.GetString(metadata.GetMethodDefinition(h).Name)).Contains("OnStartup"))
