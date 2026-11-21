@@ -96,21 +96,29 @@ public sealed class SettingsHost(string root)
 
     private async Task<(bool, string?)> SetupAsync()
     {
-        var result = await RunScriptAsync("Setup.ps1", ["-NoBrowserAtSignIn"], null);
+        var helper = Path.Combine(_root, "Nexus.Setup.exe");
+        var result = File.Exists(helper)
+            ? await RunAsync(helper, ["repair", _root], null)
+            : await RunScriptAsync("Setup.ps1", ["-NoBrowserAtSignIn"], null);
         return result.ExitCode == 0
             ? (true, "Setup completed. Reconnect Codex and Claude, then verify a tool in each agent.")
             : (false, "Setup did not finish. " + (string.IsNullOrWhiteSpace(result.Error) ? "Check the installation and try again." : result.Error.Trim()));
     }
 
-    private async Task<(int ExitCode, string Error)> RunScriptAsync(string script, string[] arguments, string? input)
+    private Task<(int ExitCode, string Error)> RunScriptAsync(string script, string[] arguments, string? input)
     {
         var scriptPath = Path.Combine(_root, script);
         if (!File.Exists(scriptPath)) throw new FileNotFoundException("Nexus setup files are missing. Run the installer.");
         var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-        var info = new ProcessStartInfo(powershell) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System), RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath }.Concat(arguments)) info.ArgumentList.Add(arg);
+        return RunAsync(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, .. arguments], input);
+    }
+
+    private static async Task<(int ExitCode, string Error)> RunAsync(string executable, string[] arguments, string? input)
+    {
+        var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System), RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var arg in arguments) info.ArgumentList.Add(arg);
         info.Environment["PSModulePath"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "Modules");
-        using var process = Process.Start(info) ?? throw new InvalidOperationException("Windows PowerShell could not start.");
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("The Nexus command could not start.");
         if (input is not null) await process.StandardInput.WriteLineAsync(input);
         process.StandardInput.Close();
         var stdout = process.StandardOutput.ReadToEndAsync();

@@ -68,6 +68,13 @@ $env:PATH = $runtime + ';' + $env:PATH
 & (Join-Path $stage 'Test-Package.ps1')
 Write-Host ('Runtime staging and validation: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
 $phase.Restart()
+$setupPublish = Join-Path $stageRoot 'setup-publish'
+& dotnet publish (Join-Path $stage 'installer\Nexus.Setup.csproj') --configuration Release --artifacts-path (Join-Path $stageRoot 'setup-artifacts') --output $setupPublish
+if ($LASTEXITCODE -ne 0) { throw 'Installer backend publish failed.' }
+$setupExe = Join-Path $setupPublish 'Nexus.Setup.exe'
+& $setupExe self-test
+if ($LASTEXITCODE -ne 0) { throw 'Installer backend self-test failed.' }
+Copy-Item -LiteralPath $setupExe -Destination $stage
 $outputDir = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 $output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"

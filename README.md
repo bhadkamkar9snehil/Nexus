@@ -13,7 +13,7 @@ Get the installer from [GitLab releases](http://10.2.6.112:8080/ssm/shared-compu
 | Download | What it does |
 |---|---|
 | **Nexus-Harness-Setup-X.Y.Z-windows-x64.exe** | The one installer. A setup wizard installs the harness, runtimes, skills and the Nexus app, adds Start menu and optional desktop shortcuts with the Nexus icon, starts Nexus at sign-in, and registers Codex and Claude where found. |
-| **Deployment ZIP** | Advanced: the same harness without the wizard, for scripted or manual setup (`Setup.ps1 -EnrollKey`). |
+| **Deployment ZIP** | Advanced: run `Nexus.Setup.exe repair <installation-directory>` after extraction, or use `Setup.ps1 -EnrollKey` to set up and enroll a key. |
 | **SHA256 files** | Checksums for the downloads. |
 
 ## Requirements
@@ -57,7 +57,7 @@ Both agents should use the same installed Nexus services:
 
 ### Check automatic setup
 
-`Setup.ps1` attempts registration only for agent commands visible on its PATH. It leaves existing entries untouched, which may mean they still point at another installation. Run these checks for the agents you use:
+The compiled setup helper attempts registration only for agent commands visible on its PATH. It leaves existing entries untouched, which may mean they still point at another installation. Run these checks for the agents you use:
 
 ```powershell
 codex mcp get shared_jev
@@ -228,7 +228,7 @@ The screenshots show a particular local run; counts and health differ on each ma
 .\Monitor.ps1 Stop
 ```
 
-Manual removal of the startup task is a separate operation. `Monitor.ps1 InstallStartup` still checks task ownership; only the installer or `Setup.ps1` invokes the verified Nexus takeover helper automatically. A responding monitor is not proof that a browser, search, desktop action or paid Jev request works. Its read-only server binds to loopback; the separate `map_files` review server has different behavior and port.
+The wizard copies the payload and calls the self-contained `Nexus.Setup.exe` for preflight and provisioning. The same helper handles Settings repair and packaged ZIP setup. It validates runtime checksums and the dependency lock, transfers only the verified monitor and processes, and checks Task Scheduler and the running monitor before reporting success. The interactive installer requests administrator approval if Windows denies access to a verified monitor task or the task belongs to another Windows user. Only takeover runs elevated. Setup still runs under the account that launched the installer. Silent upgrades report the privilege failure without displaying a prompt. If Windows denies takeover even with administrator approval, the previous owner can stop and remove their Nexus startup task before retrying. A responding monitor is not proof that a browser, search, desktop action or paid Jev request works. Its read-only server binds to loopback; the separate `map_files` review server has different behavior and port.
 
 ## Keys, privacy and cost
 
@@ -301,6 +301,6 @@ For changes, run the relevant package, reference and UI checks; see [VALIDATION.
 
 Build releases from verified GitLab main with `Build-Deployment.ps1 -Version X.Y.Z -Installer`. The script stages source, restores dependencies, builds the monitor, verifies runtimes, and reports elapsed time for each stage. Verify ZIP extraction with bundled Node, then publish the verified installer and checksum to GitLab and GitHub at the release tag.
 
-The monitor checks published GitHub releases first and falls back to private GitLab over Tailscale or the office address, every ten minutes, on every installed copy (the desktop app does not need to be open). A newer release is downloaded in the background and verified against its published SHA-256; it is installed only in a quiet moment: no tool call running, the keyboard and mouse untouched for five minutes, and no installer already running. The install runs as a one-off task in your session, so it survives the monitor it replaces, and your keys are copied to a backup first. The Updates page shows **Install updates automatically when I am away**, on by default; turn it off there, or by setting `autoUpdate` to false in `%LOCALAPPDATA%NexusPdates.json`. A manual rollback turns it off. Every step is written to `%LOCALAPPDATA%Nexusuto-update.log`, and setup writes `%LOCALAPPDATA%Nexussetup.log`. No private GitLab token is required for checksum-verified public GitHub releases. Add a GitLab `read_api` token in Updates only when private release fallback is needed. A failed installer or unchanged installed version is reported as an update failure.
+The monitor checks published GitHub releases first and falls back to private GitLab over Tailscale or the office address, every ten minutes, on every installed copy (the desktop app does not need to be open). A newer release is downloaded in the background and verified against its published SHA-256; it is installed only in a quiet moment: no tool call running, the keyboard and mouse untouched for five minutes, and no installer already running. The install runs as a one-off task in your session, so it survives the monitor it replaces, and your keys are copied to a backup first. The Updates page shows **Install updates automatically when I am away**, on by default; turn it off there, or by setting `autoUpdate` to false in `%LOCALAPPDATA%\Nexus\updates.json`. A manual rollback turns it off. Every step is written to `%LOCALAPPDATA%\Nexus\auto-update.log`, and setup writes `%LOCALAPPDATA%\Nexus\setup.log`. No private GitLab token is required for checksum-verified public GitHub releases. Add a GitLab `read_api` token in Updates only when private release fallback is needed. A failed installer or unchanged installed version is reported as an update failure.
 
 Further references: [operator and tool contracts](USAGE.md) · [agent instructions](AGENTS.md) · [validation and limits](VALIDATION.md) · [third-party software](THIRD_PARTY.md) · [search research](SEARCH-RESEARCH.md).

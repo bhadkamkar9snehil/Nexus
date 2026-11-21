@@ -14,15 +14,13 @@ try {
     Add-Type -Path (Join-Path $PSScriptRoot 'jev-use\process-identity.cs')
     & node --check (Join-Path $PSScriptRoot 'runtime-status.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime observation syntax check failed.' }
-    foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1','Nexus-Takeover.ps1','Update-Nexus.ps1','installer\Preflight.ps1','jev-use\restart-supervisor.ps1') {
-        # installer/Preflight.ps1 is bundled into Inno Setup, not copied into {app}.
-        if ($script -eq 'installer\Preflight.ps1' -and -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $script) -PathType Leaf)) { continue }
+    foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1','Nexus-Takeover.ps1','Update-Nexus.ps1','jev-use\restart-supervisor.ps1') {
         $parseErrors=$null
         $tokens=$null
         $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script),[ref]$tokens,[ref]$parseErrors)
         if ($parseErrors.Count) { throw "PowerShell parser failed for $script" }
     }
-    $takeoverTests = Join-Path $PSScriptRoot 'tests\InstallerTakeover.Tests.ps1'
+    $takeoverTests = Join-Path $PSScriptRoot 'installer\InstallerTakeover.Tests.ps1'
     if (Test-Path -LiteralPath $takeoverTests) {
         & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $takeoverTests
         if ($LASTEXITCODE -ne 0) { throw 'Nexus installer takeover safety tests failed.' }

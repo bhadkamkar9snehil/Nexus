@@ -1,5 +1,21 @@
 # Validation and acceptance
 
+## Compiled setup backend
+
+The package builder publishes the self-contained .NET 10 setup executable and runs its Windows self-test before packaging. Inno invokes it for preflight and provisioning. Desktop Settings and the packaged ZIP entry point invoke it for repair. The helper queries Task Scheduler and Windows process metadata directly, binds monitor health to the PID actually listening on the port, and validates bundled files before repair stops the monitor. The installed monitor's existing runtime host is a separate component.
+
+On Windows, an isolated compiled Inno fixture transferred a real scheduled task, retained its XML backup, and verified the replacement managed HTTP monitor. Repair rejected a corrupt package lock without stopping that monitor and restarted it after the file was restored. Preflight also rejected a live unrelated TCP listener and reported its actual PID. Fixture names, ports, and optional integrations were isolated from the production installation. Live cross-account elevation and failure recovery after package copying remain open.
+
+
+## Windows PowerShell installer environment for issue #35
+
+An Inno installer launched from PowerShell 7 inherited module paths that caused Windows PowerShell to fail at `Get-FileHash`. Setup and takeover now use the Windows PowerShell system module directory. The isolated Inno upgrade then passed on Windows using a real running scheduled task and a fixture HTTP monitor. It verified the new task and monitor root after provisioning and retained the previous task backup. Optional integrations used stubs and the fixture used its own task name and port.
+
+## Installer recovery guidance for issue #87
+
+Task Scheduler access failures now include the task owner when available and instructions for an administrator retry from the intended Windows account. The takeover targets the root scheduled task, stores each backup under a unique filename, and restarts a restored task only if it was running before takeover. Manual repair verifies the bundled runtime before attempting takeover. The installer test fixtures cover permission error classification and preflight exit status. The real Inno Setup compiler accepted the installer definition with a minimal payload. The interactive installer retries the takeover helper with elevation when requested. The fixtures test the privilege gate and preflight exit codes. A live two-account upgrade, including UAC and rollback, remains unverified. A Task Scheduler fixture reproduces HRESULT 0x80070005 from Unregister-ScheduledTask and checks that takeover requests elevation and restarts a previously running task. It also injects a failure after task removal to confirm rollback restores the old task without starting a task that was already stopped. Preflight now checks that the reported PID owns the monitor port and refuses unrelated listeners before mutating the task. A compiled Windows fixture returned exit 7 before copying on preflight failure, exit 1 on provisioning failure, and exit 0 on provisioning success. The fixture used synthetic takeover and setup scripts and did not touch the installed monitor. A separate live Windows test created an isolated running Scheduled Task, exported and removed it through takeover, and confirmed a second invocation succeeded. The test found a transient PID record during shutdown. Takeover now waits for that record to disappear without stopping a process whose command line or owner can no longer be verified.
+
+
 ## Installer destination and optional setup safeguards — 2026-11-21
 
 The preflight now proves that the selected destination is writable before it stops the old Nexus monitor. It rejects drive roots, existing files and Git checkouts, and removes its test file after the check. An unrelated listener on port 8769 reports its process name and PID without being terminated. Interactive setup offers opt-in Chrome and UFFS installation; silent updates do not run either external installer. Existing verified monitor takeover rules remain unchanged.

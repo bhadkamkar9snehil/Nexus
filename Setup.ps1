@@ -1,5 +1,19 @@
 param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn, [switch]$InstallBrowser, [switch]$InstallSearch)
 $ErrorActionPreference = 'Stop'
+$compiledSetup = Join-Path $PSScriptRoot 'Nexus.Setup.exe'
+if (Test-Path -LiteralPath $compiledSetup -PathType Leaf) {
+    $arguments = @('repair', $PSScriptRoot)
+    if ($InstallBrowser) { $arguments += '--browser' }
+    if ($InstallSearch) { $arguments += '--search' }
+    & $compiledSetup @arguments
+    if ($LASTEXITCODE -ne 0) { throw "Nexus setup failed (exit $LASTEXITCODE). See Nexus setup.log." }
+    if ($EnrollKey) { & (Join-Path $PSScriptRoot 'Set-ComputerUseKey.ps1') }
+    return
+}
+# A parent PowerShell 7 process can inject incompatible modules into Windows PowerShell.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = Join-Path $PSHOME 'Modules'
+}
 $folder = Join-Path $env:LOCALAPPDATA 'Nexus'
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 try { Start-Transcript -Path (Join-Path $folder 'setup.log') -Force | Out-Null } catch { }
@@ -10,9 +24,8 @@ function Warn-Optional([string]$label, [string]$detail) {
     Write-Warning $message
 }
 
-# Core: transfer only verified Nexus ownership and validate the shipped runtime.
+# Validate the shipped runtime before taking down the previous monitor.
 # Optional external CLIs must not prevent the Nexus monitor from starting.
-& (Join-Path $PSScriptRoot 'Nexus-Takeover.ps1') -TargetDir $PSScriptRoot
 $runtime = Join-Path $PSScriptRoot 'runtime'
 $manifest = Get-Content -LiteralPath (Join-Path $runtime 'SHA256.json') -Raw | ConvertFrom-Json
 foreach ($entry in $manifest) {
@@ -24,6 +37,7 @@ foreach ($name in 'node.exe','cua-driver.exe','uffs.exe','uffsd.exe','uffs-broke
 }
 $env:PATH = $runtime + ';' + $env:PATH
 & (Join-Path $PSScriptRoot 'Install.ps1') -UseBundledDependencies
+& (Join-Path $PSScriptRoot 'Nexus-Takeover.ps1') -TargetDir $PSScriptRoot
 
 # Mandatory: managed monitor task and HTTP health. Copied files alone are not a successful install.
 & (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup -NoBrowserAtSignIn:$NoBrowserAtSignIn
