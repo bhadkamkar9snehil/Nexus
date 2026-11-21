@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { addPeer, sendMessage, setPeer } from '../../peers.mjs';
+import { addPeer, sendMessage, setPeer, readMailbox } from '../../peers.mjs';
 
 process.env.NEXUS_NOTIFY = '0';
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -56,4 +56,18 @@ test('two-step pairing, then a message from laptop A reaches laptop B\'s waiting
   // A reply travels the other way once B knows A's token and url.
   await tool('nexus_mail', { action: 'mark_read', ids: [got.messages[0].id] });
   assert.equal((await tool('nexus_mail', { action: 'wait', timeout_ms: 1000 })).result, 'timeout');
+
+  const receiverA = await startWebhook(rootA, { host: '127.0.0.1', port: 0 });
+  await once(receiverA, 'listening');
+  try {
+    const addressA = receiverA.address();
+    assert.ok(addressA && typeof addressA !== 'string');
+    await addPeer(rootB, { name: 'laptop-a', url: `http://127.0.0.1:${addressA.port}` });
+    const body = 'x'.repeat(65536);
+    const sent = await tool('nexus_mail', { action: 'send', to: 'laptop-a', body });
+    assert.equal(sent.delivered, true);
+    assert.equal((await readMailbox(rootA))[0].body, body);
+    const rejected = await client.callTool({ name: 'nexus_mail', arguments: { action: 'send', to: 'laptop-a', body: body + 'x' } });
+    assert.equal(rejected.isError, true);
+  } finally { receiverA.close(); }
 });

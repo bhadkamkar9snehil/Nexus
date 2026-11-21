@@ -241,9 +241,9 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
   record({ status: 'running' });
   try {
     const args = params.arguments ?? {};
-    const required = (key: string) => {
+    const required = (key: string, maxLength = 2000) => {
       const value = args[key];
-      if (typeof value !== 'string' || !value.trim() || value.length > 2000) throw new Error('Invalid ' + key);
+      if (typeof value !== 'string' || !value.trim() || value.length > maxLength) throw new Error('Invalid ' + key);
       return value;
     };
     const limit = args.max_steps ?? 10;
@@ -330,7 +330,7 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
       else throw new Error('Invalid action');
     } else if (params.name === 'nexus_mail') {
       const action = (args.action as string | undefined) ?? 'inbox';
-      if (action === 'send') output = JSON.stringify({ status: 'done', ...await sendMessage(root, { to: required('to'), kind: args.kind as string | undefined, subject: args.subject as string | undefined, body: required('body') }) });
+      if (action === 'send') output = JSON.stringify({ status: 'done', ...await sendMessage(root, { to: required('to'), kind: args.kind as string | undefined, subject: args.subject as string | undefined, body: required('body', 64 * 1024) }) });
       else if (action === 'wait') {
         // Realtime without protocol support: hold the call until a peer message is unread, then return it.
         const end = Date.now() + Math.min(Math.max((args.timeout_ms as number | undefined) ?? 30000, 1000), 55000);
