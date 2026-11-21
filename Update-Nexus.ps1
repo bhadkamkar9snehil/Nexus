@@ -1,10 +1,10 @@
 # Automatic update with the least disruption. The monitor runs this every few minutes on an installed copy:
-#   1. find a newer release on GitLab and download it in the background (verified against its published SHA-256);
+#   1. find the public GitHub release (or trusted GitLab fallback) and verify the published SHA-256;
 #   2. install only in a quiet moment: no tool call running, no keyboard or mouse use for five minutes, no installer already running;
 #   3. install silently through a one-off task in the user's session, so it outlives the monitor the installer closes.
 # Turn it off with the Install updates automatically switch on the Updates page (updates.json, autoUpdate=false).
 # -DryRun reports the decision without downloading or installing; the -Releases/-Installed/-Idle/-Runs overrides make that testable.
-param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson)
+param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson, [switch]$FunctionsOnly)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $folder = Join-Path $env:LOCALAPPDATA 'Nexus'
@@ -12,15 +12,48 @@ New-Item -ItemType Directory -Path $folder -Force | Out-Null
 $log = Join-Path $folder 'auto-update.log'
 function Write-Log([string]$message) { Add-Content -LiteralPath $log -Value ('{0:yyyy-MM-dd HH:mm:ss} {1}' -f (Get-Date), $message) }
 function Done([string]$action, [string]$reason, $extra = @{}) { if ($DryRun) { (@{ action = $action; reason = $reason } + $extra) | ConvertTo-Json -Compress }; exit 0 }
+function Invoke-NexusCurl([string[]]$Arguments) {
+    # On Windows PowerShell, curl.exe stderr can become a terminating NativeCommandError
+    # when ErrorActionPreference=Stop. A failed host must not skip the next source.
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & curl.exe @Arguments 2>$null
+        return $LASTEXITCODE -eq 0
+    } catch { return $false }
+    finally { $ErrorActionPreference = $previous }
+}
+if ($FunctionsOnly) { return }
 
 if ($Install) {
     $task = 'Nexus-AutoUpdate-Install'
+    $resultCode = 1
     try {
+        if (-not $File -or -not (Test-Path -LiteralPath $File -PathType Leaf)) {
+            throw 'The staged Nexus installer is missing.'
+        }
+        if ($Version -notmatch '^v?\d+\.\d+\.\d+$') { throw 'Invalid target Nexus version.' }
         Write-Log "Installing $Version"
-        $p = Start-Process -FilePath $File -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS' -Wait -PassThru
-        Write-Log "Installer finished with exit code $($p.ExitCode)"
-    } finally { Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue }
-    exit 0
+        $installer = Start-Process -FilePath $File -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS' -Wait -PassThru
+        $resultCode = [int]$installer.ExitCode
+        Write-Log "Installer finished with exit code $resultCode"
+        if ($resultCode -eq 0) {
+            $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+            $registeredVersion = [string]$uninstall.DisplayVersion
+            if ($registeredVersion -ne $Version.TrimStart('v')) {
+                Write-Log "Installer exited successfully, but the installed version was not verified (registered: $registeredVersion)"
+                $resultCode = 1
+            } else {
+                Write-Log "Installed Nexus version verified: $registeredVersion"
+            }
+        }
+    } catch {
+        Write-Log ('Installer execution failed: ' + $_.Exception.GetType().Name)
+        $resultCode = 1
+    } finally {
+        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    exit $resultCode
 }
 
 # Only an installer-managed copy updates itself; a source checkout is updated with git.
@@ -36,20 +69,46 @@ $hosts = 'http://100.110.236.122:8080', 'http://10.2.6.112:8080'
 $tokenFile = Join-Path $folder 'gitlab-token.bin'
 $token = try { Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($tokenFile), $null, 'CurrentUser')) } catch { $null }
 $headers = if ($token) { @{ 'PRIVATE-TOKEN' = $token } } else { @{} }
+# Prefer published GitHub releases so Windows peers without private GitLab tokens can update.
+# Private GitLab remains an alternate source when GitHub is unreachable.
+$githubApi = 'https://api.github.com/repos/bhadkamkar9snehil/Nexus/releases?per_page=10'
 $releases = $null
 if ($ReleasesJson) { $releases = Get-Content -LiteralPath $ReleasesJson -Raw | ConvertFrom-Json }
 else {
-    foreach ($h in $hosts) {
-        try { $releases = Invoke-RestMethod "$h/api/v4/projects/ssm%2Fshared-computer-use/releases?per_page=10" -Headers $headers -TimeoutSec 6; break } catch { }
+    try {
+        $releases = Invoke-RestMethod $githubApi -Headers @{ 'User-Agent'='Nexus-Harness-Updater'; 'Accept'='application/vnd.github+json' } -TimeoutSec 8
+    } catch { }
+    if (-not $releases) {
+        foreach ($h in $hosts) {
+            try { $releases = Invoke-RestMethod "$h/api/v4/projects/ssm%2Fshared-computer-use/releases?per_page=10" -Headers $headers -TimeoutSec 6; break } catch { }
+        }
     }
 }
-if (-not $releases) { Done 'none' 'GitLab is not reachable or no access token is saved' }
+if (-not $releases) { Done 'none' 'GitHub and GitLab releases are unreachable' }
 $latest = $null
 foreach ($r in $releases) {
-    $link = @($r.assets.links) | Where-Object { $_.name -like 'Nexus-Harness-Setup-*.exe' } | Select-Object -First 1
-    if (-not $link) { continue }
-    $sha = [regex]::Match([string]$r.description, [regex]::Escape($link.name) + ': SHA256 ([0-9a-fA-F]{64})').Groups[1].Value
-    if ($sha) { $latest = [pscustomobject]@{ Tag = $r.tag_name; Name = $link.name; Path = ([uri]$link.url).PathAndQuery; Sha = $sha.ToLower() }; break }
+    $tag = [string]$r.tag_name
+    if ($tag -notmatch '^v\d+\.\d+\.\d+$') { continue }
+    $filename = 'Nexus-Harness-Setup-' + $tag.Substring(1) + '-windows-x64.exe'
+    $notes = if ($r.body) { [string]$r.body } else { [string]$r.description }
+    $sha = [regex]::Match($notes, [regex]::Escape($filename) + ': SHA256 ([0-9a-fA-F]{64})').Groups[1].Value.ToLowerInvariant()
+    if (-not $sha) { continue }
+    $githubAsset = @($r.assets) | Where-Object { $_.name -eq $filename -and $_.browser_download_url } | Select-Object -First 1
+    if ($githubAsset) {
+        $expected = 'https://github.com/bhadkamkar9snehil/Nexus/releases/download/' + $tag + '/' + $filename
+        if ([string]$githubAsset.browser_download_url -ne $expected) { continue }
+        $digest = [string]$githubAsset.digest
+        if ($digest -and $digest -ne ('sha256:' + $sha)) { continue }
+        $latest = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='github'; Url=$expected; Sha=$sha }
+        break
+    }
+    $gitlabAsset = @($r.assets.links) | Where-Object { $_.name -eq $filename -and $_.url } | Select-Object -First 1
+    if ($gitlabAsset) {
+        $assetUrl = [uri]$gitlabAsset.url
+        if ($hosts -notcontains $assetUrl.GetLeftPart([UriPartial]::Authority)) { continue }
+        $latest = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='gitlab'; Path=$assetUrl.PathAndQuery; Sha=$sha }
+        break
+    }
 }
 if (-not $latest) { Done 'none' 'no release with an installer and a checksum' }
 if ([version]$latest.Tag.TrimStart('v') -le [version]$installed) { Done 'none' "already on $installed" }
@@ -60,10 +119,14 @@ if (-not $DryRun) {
     New-Item -ItemType Directory -Path (Split-Path $staged) -Force | Out-Null
     if (-not ((Test-Path $staged) -and (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower() -eq $latest.Sha)) {
         $ok = $false
-        foreach ($h in $hosts) {
-            $arguments = @('-sS', '-f', '--max-time', '900', '-o', $staged) + $(if ($token) { '-H', "PRIVATE-TOKEN: $token" }) + ($h + $latest.Path)
-            & curl.exe @arguments 2>$null
-            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+        if ($latest.Source -eq 'github') {
+            # Never send the private GitLab token to GitHub or its download CDN.
+            $ok = Invoke-NexusCurl -Arguments @('-fsSL', '--retry', '2', '--connect-timeout', '8', '--max-time', '900', '--proto', '=https', '--proto-redir', '=https', '-o', $staged, $latest.Url)
+        } else {
+            foreach ($h in $hosts) {
+                $arguments = @('-sS', '-f', '--connect-timeout', '5', '--max-time', '900', '-o', $staged) + $(if ($token) { '-H', "PRIVATE-TOKEN: $token" }) + ($h + $latest.Path)
+                if (Invoke-NexusCurl -Arguments $arguments) { $ok = $true; break }
+            }
         }
         if ($ok -and (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower() -ne $latest.Sha) { Remove-Item $staged -Force; $ok = $false; Write-Log "Discarded a download that did not match the published checksum for $($latest.Tag)" }
         if (-not $ok) { Done 'none' 'download failed; will retry' }

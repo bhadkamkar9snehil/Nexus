@@ -54,6 +54,13 @@ begin
   Result := Provisioned;
 end;
 
+// A copied application is not a successful installation until setup passes.
+// Return a failure status to scheduled and silent updaters when provisioning fails.
+function GetCustomSetupExitCode: Integer;
+begin
+  if Provisioned then Result := 0 else Result := 1;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ResultCode: Integer; ResultFile, Params: String; Detail: AnsiString;
 begin
@@ -77,9 +84,9 @@ begin
     Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Setup.ps1') + '" -NoBrowserAtSignIn';
     // SuppressibleMsgBox, not MsgBox: a silent install (the updater, an agent) must never wait for a click that nobody sees.
     if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      SuppressibleMsgBox('Nexus was copied, but setup could not start. Open Nexus Settings and select Set up or repair.', mbError, MB_OK, IDOK)
+      SuppressibleMsgBox('Nexus files were copied, but setup did not start. Retry with Nexus Settings > Set up or repair. Check %LOCALAPPDATA%\Nexus\setup.log. The installer reports failure.', mbError, MB_OK, IDOK)
     else if ResultCode <> 0 then
-      SuppressibleMsgBox('Nexus was copied, but setup did not finish. Open Nexus Settings and select Set up or repair. Existing installations were preserved.', mbError, MB_OK, IDOK)
+      SuppressibleMsgBox('Nexus files were copied, but setup failed. Close Nexus and select Settings > Set up or repair. Check %LOCALAPPDATA%\Nexus\setup.log. Your data remains intact. The installer reports failure.', mbError, MB_OK, IDOK)
     else Provisioned := True;
   end;
 end;

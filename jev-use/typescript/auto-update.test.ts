@@ -9,6 +9,11 @@ const script = join(import.meta.dirname, '..', '..', 'Update-Nexus.ps1');
 const sha = 'a'.repeat(64);
 const release = (tag: string) => ({ tag_name: tag, description: `## Checksums\n- Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe: SHA256 ${sha}`,
   assets: { links: [{ name: `Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe`, url: `http://10.2.6.112:8080/api/v4/projects/55/packages/generic/nexus-harness/${tag.slice(1)}/Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe` }] } });
+const githubRelease = (tag: string, digest = `sha256:${sha}`) => ({
+  tag_name: tag, body: `## Checksums\n- Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe: SHA256 ${sha}`,
+  assets: [{ name: `Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe`,
+    browser_download_url: `https://github.com/bhadkamkar9snehil/Nexus/releases/download/${tag}/Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe`, digest }],
+});
 
 async function decide(options: { installed?: string; idle?: number; running?: boolean; autoUpdate?: boolean; releases?: unknown[] }) {
   const dir = await mkdtemp(join(tmpdir(), 'nexus-auto-update-'));
@@ -33,6 +38,18 @@ test('the owner at the keyboard or a running tool call defers the install', { sk
   assert.match((await decide({ idle: 20 })).reason, /owner is active/);
   assert.equal((await decide({ idle: 20 })).action, 'wait');
   assert.match((await decide({ running: true })).reason, /tool call is running/);
+});
+
+test('public GitHub release is eligible without private GitLab credentials', { skip: process.platform !== 'win32' }, async () => {
+  const result = await decide({ installed: '1.17.1', releases: [githubRelease('v1.18.0')] });
+  assert.equal(result.action, 'install');
+  assert.equal(result.latest, 'v1.18.0');
+});
+
+test('GitHub release is refused when published digest disagrees with description', { skip: process.platform !== 'win32' }, async () => {
+  const result = await decide({ installed: '1.17.1', releases: [githubRelease('v1.18.0', 'sha256:' + 'b'.repeat(64))] });
+  assert.equal(result.action, 'none');
+  assert.match(result.reason, /no release with an installer/);
 });
 
 test('nothing happens when current, when switched off, or when no release has a checksum', { skip: process.platform !== 'win32' }, async () => {
