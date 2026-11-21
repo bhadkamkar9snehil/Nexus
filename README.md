@@ -196,7 +196,11 @@ Open the desktop EXE or use a browser at `http://127.0.0.1:8769/`. From the harn
 The monitor shows recorded runs, timings, token and estimated-cost information, the tool catalog, and runtime health. It reads a bounded recent metadata window: up to 500 calls from a 256 KiB log tail. Refresh and component observations have different intervals. Missing usage is unknown, not zero; the historical cost estimate is not an invoice. Direct Cua actions outside the wrapper are not necessarily recorded.
 
 | Capability catalog | Runtime health |
-|---|---|
+| ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
+
+**Devices & agents**: your own computers pair by themselves over Tailscale, teammates pair with a one-time code, each device has a conversation, and your agent can answer the other computer's agent without you (see USAGE.md).
+
+![Devices and agents](docs/screenshots/devices-light.png)
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
 
 <details><summary>More monitor views</summary>

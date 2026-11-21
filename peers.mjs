@@ -2,6 +2,7 @@
 // switch and permissions. Mail and chat travel over HTTP to the peer's receiver (the webhook port) and are kept in a local mailbox.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 
 const kinds = ['mail', 'chat'];
@@ -16,12 +17,18 @@ async function save(root, config) {
   await mkdir(folder(root), { recursive: true });
   await writeFile(file(root, 'peers.json'), JSON.stringify(config, null, 2));
 }
-const clean = ({ name, url, enabled, allow }) => ({ name, url, enabled, allow });
+const clean = ({ name, url, enabled, allow, outbound, own }) => ({ name, url, enabled, allow, paired: Boolean(outbound), own: Boolean(own) });
+
+/** The name this installation introduces itself with: the computer name unless `self` is set in peers.json. */
+export async function selfName(root) {
+  return String((await load(root)).self || hostname()).toLowerCase().replace(/[^\w.-]/g, '-').slice(0, 40);
+}
 
 export async function listPeers(root) { return (await load(root)).peers.map(clean); }
+export async function getPeer(root, name) { const p = (await load(root)).peers.find(x => x.name === name); return p ? clean(p) : null; }
 
 /** Adds or updates a peer. `outbound` is the token the peer gave us; the returned `inbound` is what to give the peer. */
-export async function addPeer(root, { name, url, outbound, allow }) {
+export async function addPeer(root, { name, url, outbound, allow, own }) {
   if (!/^[\w.-]{1,40}$/.test(name ?? '')) throw new Error('Peer name must be 1-40 letters, digits, dot, dash or underscore');
   if (!/^https?:\/\/[^\s/]+/.test(url ?? '')) throw new Error('Peer url must be http(s)://host:port');
   // Pairing takes two steps: each side adds the other (getting the token to hand over), then each sets the token it received.
@@ -31,6 +38,7 @@ export async function addPeer(root, { name, url, outbound, allow }) {
   if (!peer) config.peers.push(peer = { name, enabled: true, allow: { mail: true, chat: true }, inbound: randomBytes(24).toString('hex') });
   Object.assign(peer, { url: url.replace(/\/+$/, ''), ...(outbound === undefined ? {} : { outbound }) });
   if (allow) peer.allow = { mail: allow.mail !== false, chat: allow.chat !== false };
+  if (own !== undefined) peer.own = own; // a device of the same Tailscale account (the owner's own computer)
   await save(root, config);
   return { ...clean(peer), inbound: peer.inbound };
 }
@@ -78,14 +86,15 @@ async function store(root, message) {
   await appendFile(file(root, 'mailbox.jsonl'), JSON.stringify(message) + '\n');
 }
 
-function validate({ kind, subject, body }) {
+function validate({ kind, subject, body, hop }) {
+  if (hop !== undefined && (!Number.isInteger(hop) || hop < 0 || hop > 20)) throw new Error('hop must be an integer 0-20');
   if (!kinds.includes(kind)) throw new Error('kind must be mail or chat');
   if (typeof body !== 'string' || !body || body.length > maxBody) throw new Error('body required, at most 64 KB');
   if (subject !== undefined && (typeof subject !== 'string' || subject.length > 200)) throw new Error('subject at most 200 characters');
 }
 
-export async function sendMessage(root, { to, kind = 'mail', subject, body }, fetcher = fetch) {
-  validate({ kind, subject, body });
+export async function sendMessage(root, { to, kind = 'mail', subject, body, hop }, fetcher = fetch) {
+  validate({ kind, subject, body, hop });
   const peer = (await load(root)).peers.find(p => p.name === to);
   if (!peer) throw new Error('Unknown peer');
   if (!peer.enabled) throw new Error('Peer is switched off');
@@ -95,10 +104,10 @@ export async function sendMessage(root, { to, kind = 'mail', subject, body }, fe
   const response = await fetcher(peer.url + '/peer/message', {
     method: 'POST', signal: AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + peer.outbound },
-    body: JSON.stringify({ kind, subject, body }),
+    body: JSON.stringify({ kind, subject, body, ...(hop === undefined ? {} : { hop }) }),
   });
   if (!response.ok) throw new Error(`Peer refused the message (${response.status})`);
-  const message = { id: randomBytes(6).toString('hex'), box: 'out', at: Date.now(), peer: to, kind, subject, body };
+  const message = { id: randomBytes(6).toString('hex'), box: 'out', at: Date.now(), peer: to, kind, subject, body, ...(hop === undefined ? {} : { hop }) };
   await store(root, message);
   return { id: message.id, delivered: true, from: self };
 }
@@ -111,7 +120,7 @@ export async function receive(root, authorization, payload, onMessage) {
   if (!peer.enabled) return 403;
   try { validate(payload); } catch { return 400; }
   if (!peer.allow[payload.kind]) return 403;
-  const message = { id: randomBytes(6).toString('hex'), box: 'in', at: Date.now(), peer: peer.name, kind: payload.kind, subject: payload.subject, body: payload.body };
+  const message = { id: randomBytes(6).toString('hex'), box: 'in', at: Date.now(), peer: peer.name, kind: payload.kind, subject: payload.subject, body: payload.body, ...(payload.hop === undefined ? {} : { hop: payload.hop }) };
   await store(root, message);
   onMessage?.(message);
   return 200;

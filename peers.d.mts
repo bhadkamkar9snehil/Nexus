@@ -1,8 +1,10 @@
 type Allow = { mail?: boolean; chat?: boolean };
-type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean } };
+type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean }; paired: boolean; own: boolean };
 type Message = { id: string; box: 'in' | 'out'; at: number; peer: string; kind: string; subject?: string; body: string; read?: boolean };
 export function listPeers(root: string): Promise<Peer[]>;
-export function addPeer(root: string, peer: { name: string; url: string; outbound?: string; allow?: Allow }): Promise<Peer & { inbound: string }>;
+export function getPeer(root: string, name: string): Promise<Peer | null>;
+export function selfName(root: string): Promise<string>;
+export function addPeer(root: string, peer: { name: string; url: string; outbound?: string; allow?: Allow; own?: boolean }): Promise<Peer & { inbound: string }>;
 export function setPeer(root: string, name: string, change: { enabled?: boolean; allow?: Allow; outbound?: string }): Promise<Peer>;
 export function removePeer(root: string, name: string): Promise<void>;
 export function readMailbox(root: string, options?: { box?: 'in' | 'out'; unread?: boolean; limit?: number }): Promise<Message[]>;

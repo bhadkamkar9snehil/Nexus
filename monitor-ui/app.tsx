@@ -2,14 +2,15 @@ import {useCallback,useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {SettingsView} from './settings';
 import {UpdatesView} from './updates';
-import {Bot,Download,Gauge,HeartPulse,Moon,PanelLeftClose,PanelLeftOpen,Settings,Sun,Wrench} from 'lucide-react';
+import {PeersView} from './peers';
+import {Bot,Download,Gauge,HeartPulse,Moon,Network,PanelLeftClose,PanelLeftOpen,Settings,Sun,Wrench} from 'lucide-react';
 import {Panel,IconTile} from './upstream/viz';
 import {Button} from './upstream/button';
 import {Run,Runtime,Tool,names,number,money} from './data';
 import {Metrics,Workload,State} from './widgets';
 import {RunsView,HealthView,ToolsView} from './views';
 import {cn} from './utils';
-const routes=[{id:'overview',label:'Command centre',icon:Gauge},{id:'tools',label:'Agents & tools',icon:Wrench},{id:'health',label:'Runtime health',icon:HeartPulse},{id:'usage',label:'Usage & cost',icon:Bot},{id:'updates',label:'Updates',icon:Download},{id:'settings',label:'Settings',icon:Settings}];
+const routes=[{id:'overview',label:'Command centre',icon:Gauge},{id:'tools',label:'Agents & tools',icon:Wrench},{id:'peers',label:'Devices & agents',icon:Network},{id:'health',label:'Runtime health',icon:HeartPulse},{id:'usage',label:'Usage & cost',icon:Bot},{id:'updates',label:'Updates',icon:Download},{id:'settings',label:'Settings',icon:Settings}];
 const Mark=({className}:{className?:string})=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className={className} aria-hidden><circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V4.6M14.3 10.7l4-2.4M14.3 13.3l3.4 2.4M12 14.6v4.8M9.7 13.3l-3.4 2.4M9.7 10.7l-4-2.4"/><circle cx="12" cy="3.6" r="1.4" fill="currentColor"/><circle cx="19" cy="7.6" r="1.4" fill="currentColor"/><circle cx="18" cy="16.6" r="1.4" fill="currentColor"/><circle cx="12" cy="20.4" r="1.4" fill="currentColor"/><circle cx="6" cy="16.6" r="1.4" fill="currentColor"/><circle cx="5" cy="7.6" r="1.4" fill="currentColor"/></svg>;
 const safe=<T,>(fn:()=>T,fallback:T):T=>{try{return fn();}catch{return fallback;}};
 const parse=()=>routes.some(r=>r.id===location.hash.slice(2))?location.hash.slice(2):'overview';
@@ -38,13 +39,14 @@ function App(){
   </nav>
   <main className="flex min-w-0 flex-1 flex-col"><div className="flex items-center gap-3 border-b bg-canvas px-4 py-2 md:hidden"><Mark className="size-5"/><select aria-label="Page" className="min-w-0 flex-1 bg-canvas text-sm" value={view} onChange={e=>go(e.target.value)}>{routes.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}</select><Button variant="ghost" size="icon-sm" onClick={theme} aria-label="Switch theme">{dark?<Sun/>:<Moon/>}</Button></div>
    <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"><div className="space-y-3 px-4 py-3 lg:px-6">
-    <header className="flex flex-wrap items-center gap-3"><IconTile icon={Icon}/><div className="min-w-0 flex-1"><h1 className="text-title font-semibold tracking-tight">{title}</h1><p className="text-xs text-subtle-foreground">{view==='overview'?'Recorded activity · up to 500 calls · live refresh':'Computer, browser, search and decision tools'}</p></div><span role="status"><State value={error?'error':loaded?'healthy':'unknown'} label={error?'Reconnecting':loaded?'Monitor online':'Connecting'}/></span></header>
+    <header className="flex flex-wrap items-center gap-3"><IconTile icon={Icon}/><div className="min-w-0 flex-1"><h1 className="text-title font-semibold tracking-tight">{title}</h1><p className="text-xs text-subtle-foreground">{view==='overview'?'Recorded activity · up to 500 calls · live refresh':view==='peers'?'Your computers and their agents: paired, messaging, answering':'Computer, browser, search and decision tools'}</p></div><span role="status"><State value={error?'error':loaded?'healthy':'unknown'} label={error?'Reconnecting':loaded?'Monitor online':'Connecting'}/></span></header>
     {error&&<div role="alert" className="rounded-lg bg-destructive-soft px-4 py-3 text-sm text-destructive">{error} Showing the last received data.</div>}
     {view==='overview'&&<><Metrics runs={runs}/><Workload runs={runs}/><RunsView runs={runs} loading={!loaded}/></>}
     {view==='tools'&&<ToolsView tools={tools} runs={runs} runtime={runtime} error={toolError}/>}
     {view==='health'&&<HealthView runtime={runtime} error={runtimeError} checking={checking} refresh={checkHealth}/>}
     {view==='usage'&&<><Metrics runs={runs}/><Panel icon={Bot} title="Usage ledger" meta="Reported API responses · this recorded window" pad="none"><div className="scrollbar-thin max-h-[480px] overflow-auto rounded-xl"><table className="w-full min-w-[620px] text-left text-xs"><thead className="sticky top-0 bg-surface text-muted-foreground"><tr>{['Tool','Input tokens','Output tokens','Estimated USD','Coverage'].map(v=><th className="border-b px-4 py-3 font-medium" key={v}>{v}</th>)}</tr></thead><tbody>{runs.map(r=><tr className="border-b last:border-0" key={r.id}><td className="px-4 py-3">{names[r.tool]??r.tool}</td><td className="px-4 py-3 tabular-nums">{r.inputTokens==null?'—':number(r.inputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.outputTokens==null?'—':number(r.outputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.estimatedJevUsd==null?'—':money(r.estimatedJevUsd)}</td><td className="px-4 py-3">{r.inputTokens==null?'Unknown':r.usagePartial?'Partial':'Reported'}</td></tr>)}</tbody></table></div></Panel><p className="text-2xs text-subtle-foreground">Estimate uses the historical $0.042 per million input tokens. Not a bill. Missing usage is unknown, not free; direct Cua calls are outside this ledger.</p></>}
     {view==='updates'&&<UpdatesView/>}
+    {view==='peers'&&<PeersView/>}
     {view==='settings'&&<SettingsView accent={accent} setAccent={Accent} dark={dark} theme={theme}/>}
    </div></div>
    <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-canvas px-4 py-1.5 text-2xs text-subtle-foreground"><span className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full',error?'bg-destructive':'bg-signal')}/>Local monitor</span><span>{runs.length} recorded calls</span><span>{runs.filter(r=>r.status==='running').length} running</span><span className="ml-auto">{synced?'Updated '+new Date(synced).toLocaleTimeString():'Waiting for activity'} · 127.0.0.1:8769</span></footer>

@@ -109,8 +109,9 @@ test('webhook: subscribe then delivers signed events with a safe cursor', async 
   assert.match(hit.json.cursor, /^s\d+$/);
 
   // Refresh is idempotent: same id, fresh TTL, delivery status reported.
-  await sleep(400);
-  const again = await subscribe({ ttlMs: 600_000, cursor: grant.cursor });
+  // The delivery loop reports status asynchronously; refresh until it has (bounded) instead of guessing a delay.
+  let again = await subscribe({ ttlMs: 600_000, cursor: grant.cursor });
+  for (let i = 0; i < 40 && !again.deliveryStatus?.lastDeliveryAt; i++) { await sleep(200); again = await subscribe({ ttlMs: 600_000, cursor: grant.cursor }); }
   assert.equal(again.id, grant.id);
   assert.equal(again.deliveryStatus.active, true);
   assert.ok(again.deliveryStatus.lastDeliveryAt);

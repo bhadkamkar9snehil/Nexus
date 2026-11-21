@@ -5,6 +5,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { receive, sendMessage } from './peers.mjs';
+import { handleHello, handlePair } from './peers-auto.mjs';
 import { emit } from './events.mjs';
 import { accepts, loadWebhookConfig } from './webhook-config.mjs';
 import { notify } from './notify.mjs';
@@ -32,7 +33,7 @@ function summarize(kind, body) {
   return { project, title: `${kind} to ${body.ref ?? ''}` };
 }
 
-export async function startWebhook(root) {
+export async function startWebhook(root, options = {}) {
   const secret = Buffer.from(await webhookSecret(root));
   const server = createServer((req, res) => {
     const done = (status) => { res.writeHead(status).end(); };
@@ -46,7 +47,22 @@ export async function startWebhook(root) {
             notify(`Message from ${m.peer}`, m.subject || m.body);
             // Minimal payload: the body stays in the mailbox (nexus_mail).
             emit(root, { name: 'peer.message', eventId: m.id, data: { messageId: m.id, from: m.peer, kind: m.kind, subject: m.subject ?? '' } }).catch(() => {});
+            options.onMessage?.(m);
           }));
+        } catch { done(400); }
+      });
+      return;
+    }
+    // Pairing: own devices ("hello", trusted by Tailscale account) and one-time codes ("pair").
+    if (req.method === 'POST' && (req.url === '/peer/hello' || req.url === '/peer/pair')) {
+      let size = 0; const chunks = [];
+      req.on('data', (c) => { size += c.length; if (size > 16 * 1024) req.destroy(); else chunks.push(c); });
+      req.on('end', async () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const remote = String(req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
+          const result = req.url === '/peer/hello' ? await handleHello(root, remote, body) : await handlePair(root, remote, body);
+          res.writeHead(result.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(result.json));
         } catch { done(400); }
       });
       return;

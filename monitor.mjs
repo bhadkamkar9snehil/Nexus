@@ -6,6 +6,10 @@ import { join } from 'node:path';
 import { runtimeStatus } from './runtime-status.mjs';
 import { events, startWebhook, webhookPort } from './webhook.mjs';
 import { startEventDelivery } from './events-webhooks.mjs';
+import { startPeerDiscovery } from './peers-auto.mjs';
+import { respondTo } from './agent-responder.mjs';
+import { firewall } from './firewall.mjs';
+import { handleApi } from './peers-api.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
@@ -62,7 +66,21 @@ createServer(async (req, res) => {
     res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     res.end(body);
   };
-  if (req.headers.host !== `127.0.0.1:${port}` || req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
+  if (req.headers.host !== `127.0.0.1:${port}`) return send(403, 'text/plain', 'Forbidden');
+  // The Peers page API: POST needs a same-origin request carrying X-Nexus, so another web page cannot drive it.
+  if (req.url.startsWith('/api/')) {
+    if (req.method === 'POST' && (req.headers['x-nexus'] !== '1' || (req.headers.origin && req.headers.origin !== origin))) return send(403, 'text/plain', 'Forbidden');
+    if (req.method !== 'GET' && req.method !== 'POST') return send(405, 'text/plain', 'Method not allowed');
+    let body = {};
+    if (req.method === 'POST') {
+      const chunks = []; let size = 0;
+      for await (const c of req) { size += c.length; if (size > 128 * 1024) return send(413, 'text/plain', 'Too large'); chunks.push(c); }
+      try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}; } catch { return send(400, 'text/plain', 'Bad JSON'); }
+    }
+    const result = await handleApi(import.meta.dirname, req.method, new URL(req.url, origin), body);
+    return send(result.status, 'application/json', JSON.stringify(result.json));
+  }
+  if (req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
   if (req.url === '/monitor-status') return send(200, 'application/json', JSON.stringify({ application: 'shared-computer-use-monitor', root: import.meta.dirname, pid: process.pid,managed:process.env.HARNESS_MONITOR_MANAGED==='1' }));
   if (req.url === '/runtime') {
     try {
@@ -109,8 +127,11 @@ createServer(async (req, res) => {
   catch { send(500, 'text/plain', 'Could not read the run log'); }
 }).listen(port, '127.0.0.1', async () => {
   console.log('Computer & Browser Use Monitor: ' + origin);
-  startWebhook(import.meta.dirname).catch(e => console.error('Webhook receiver not started: ' + e.message));
+  // Admin: the peer port is opened automatically. Peers: pair with the owner's own Tailscale devices, answer chat with the owner's agent.
+  firewall({ create: true }).then(f => { if (f.created) console.log('Opened inbound port ' + f.port + ' for peers.'); else if (!f.open) console.error('Peer port ' + f.port + ' is closed in Windows Firewall; run Nexus as administrator once, or use Open port on the Peers page.'); });
+  startWebhook(import.meta.dirname, { onMessage: m => respondTo(import.meta.dirname, m, { log: console.error }) }).catch(e => console.error('Webhook receiver not started: ' + e.message));
   startEventDelivery(import.meta.dirname, { log: console.error });
+  startPeerDiscovery(import.meta.dirname, { log: console.log });
   const session=process.env.HARNESS_MONITOR_SESSION;
   if(session){
     const marker=new URL('./.monitor-session',import.meta.url);
