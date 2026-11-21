@@ -23,34 +23,80 @@ function Invoke-NexusCurl([string[]]$Arguments) {
     } catch { return $false }
     finally { $ErrorActionPreference = $previous }
 }
+function Test-NexusMonitorHealthy([string]$InstallRoot) {
+    if (-not $InstallRoot -or -not [IO.Path]::IsPathRooted($InstallRoot)) { return $false }
+    $root = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        try {
+            $task = Get-ScheduledTask -TaskName 'SharedHarness-Monitor' -ErrorAction SilentlyContinue
+            $health = Invoke-RestMethod 'http://127.0.0.1:8769/monitor-status' -TimeoutSec 2
+            if ($task -and $task.State -eq 'Running' -and
+                $health.application -eq 'shared-computer-use-monitor' -and $health.managed -eq $true -and
+                [IO.Path]::IsPathRooted([string]$health.root) -and
+                [IO.Path]::GetFullPath([string]$health.root).TrimEnd('\') -ieq $root) {
+                return $true
+            }
+        } catch { }
+        if ($attempt -lt 9) { Start-Sleep -Seconds 2 }
+    }
+    return $false
+}
+function Save-NexusInstallReceipt([string]$TargetVersion, [int]$ExitCode, [bool]$MonitorReady, [string]$InstallerLog) {
+    $receipt = @{
+        version = $TargetVersion
+        recordedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+        exitCode = $ExitCode
+        monitorVerified = $MonitorReady
+        installerLog = $InstallerLog
+    }
+    $receiptFile = Join-Path $folder 'last-install-receipt.json'
+    $tempFile = $receiptFile + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($tempFile, ($receipt | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tempFile -Destination $receiptFile -Force
+    } catch {
+        Write-Log ('Could not save installer receipt: ' + $_.Exception.GetType().Name)
+    } finally { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue }
+}
 if ($FunctionsOnly) { return }
 
 if ($Install) {
     $task = 'Nexus-AutoUpdate-Install'
     $resultCode = 1
+    $monitorReady = $false
+    $safeVersion = if ($Version -match '^v?\d+\.\d+\.\d+$') { $Version.TrimStart('v') } else { 'unknown' }
+    $installerLog = Join-Path $folder ('installer-{0}-{1}.log' -f $safeVersion, (Get-Date -Format 'yyyyMMdd-HHmmss'))
     try {
         if (-not $File -or -not (Test-Path -LiteralPath $File -PathType Leaf)) {
             throw 'The staged Nexus installer is missing.'
         }
-        if ($Version -notmatch '^v?\d+\.\d+\.\d+$') { throw 'Invalid target Nexus version.' }
-        Write-Log "Installing $Version"
-        $installer = Start-Process -FilePath $File -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS' -Wait -PassThru
+        if ($safeVersion -eq 'unknown') { throw 'Invalid target Nexus version.' }
+        Write-Log "Installing $Version; installer diagnostic log: $installerLog"
+        $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', ('/LOG="' + $installerLog + '"'))
+        $installer = Start-Process -FilePath $File -ArgumentList $arguments -Wait -PassThru
         $resultCode = [int]$installer.ExitCode
-        Write-Log "Installer finished with exit code $resultCode"
+        Write-Log "Installer finished with exit code $resultCode; log: $installerLog"
         if ($resultCode -eq 0) {
             $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
             $registeredVersion = [string]$uninstall.DisplayVersion
-            if ($registeredVersion -ne $Version.TrimStart('v')) {
-                Write-Log "Installer exited successfully, but the installed version was not verified (registered: $registeredVersion)"
+            if ($registeredVersion -ne $safeVersion) {
+                Write-Log "Installer exited successfully, but installed version was not verified (registered: $registeredVersion)"
                 $resultCode = 1
             } else {
-                Write-Log "Installed Nexus version verified: $registeredVersion"
+                $monitorReady = Test-NexusMonitorHealthy -InstallRoot ([string]$uninstall.InstallLocation)
+                if (-not $monitorReady) {
+                    Write-Log 'Installed version matches, but the managed Nexus monitor or its scheduled task is not healthy.'
+                    $resultCode = 1
+                } else {
+                    Write-Log "Installed Nexus version and running managed monitor verified: $registeredVersion"
+                }
             }
         }
     } catch {
         Write-Log ('Installer execution failed: ' + $_.Exception.GetType().Name)
         $resultCode = 1
     } finally {
+        Save-NexusInstallReceipt -TargetVersion $Version -ExitCode $resultCode -MonitorReady $monitorReady -InstallerLog $installerLog
         Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
     }
     exit $resultCode

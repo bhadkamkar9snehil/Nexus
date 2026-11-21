@@ -7,19 +7,31 @@ import { join } from 'node:path';
 
 const updater = join(import.meta.dirname, '..', '..', 'Update-Nexus.ps1');
 
-async function runInstallerScenario(exitCode: number, installedVersion: string, launchFailure = false) {
+async function runInstallerScenario(exitCode: number, installedVersion: string, launchFailure = false, monitor: 'healthy' | 'missing' | 'wrong-root' = 'healthy') {
   const home = await mkdtemp(join(tmpdir(), 'nexus-updater-exit-'));
   try {
     const mock = [
       'function Start-Process {',
       '  param([string]$FilePath, [string[]]$ArgumentList, [switch]$Wait, [switch]$PassThru)',
       "  if ($env:NEXUS_TEST_LAUNCH_FAIL -eq '1') { throw 'Simulated process start failure' }",
+      "  Set-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'Nexus\\installer-args.txt') -Value ($ArgumentList -join [char]10)",
       '  [pscustomobject]@{ ExitCode = [int]$env:NEXUS_TEST_EXIT }',
       '}',
       'function Get-ItemProperty {',
       '  param([string]$Path, [string]$ErrorAction)',
-      '  [pscustomobject]@{ DisplayVersion = $env:NEXUS_TEST_INSTALLED }',
+      "  [pscustomobject]@{ DisplayVersion = $env:NEXUS_TEST_INSTALLED; InstallLocation = 'C:\\Fixture\\Nexus' }",
       '}',
+      'function Get-ScheduledTask {',
+      '  param([string]$TaskName, [string]$ErrorAction)',
+      "  if ($env:NEXUS_TEST_MONITOR -eq 'missing') { return $null }",
+      "  [pscustomobject]@{ State = 'Running' }",
+      '}',
+      'function Invoke-RestMethod {',
+      '  param([string]$Uri, [int]$TimeoutSec)',
+      "  $path = if ($env:NEXUS_TEST_MONITOR -eq 'wrong-root') { 'C:\\Other\\Nexus' } else { 'C:\\Fixture\\Nexus' }",
+      "  [pscustomobject]@{ application='shared-computer-use-monitor'; managed=$true; root=$path }",
+      '}',
+      'function Start-Sleep { param([int]$Seconds) }',
       'function Unregister-ScheduledTask {',
       '  param([string]$TaskName, [switch]$Confirm, [string]$ErrorAction)',
       "  Write-Output 'SIMULATED_TASK_CLEANUP'",
@@ -40,12 +52,15 @@ async function runInstallerScenario(exitCode: number, installedVersion: string, 
         NEXUS_TEST_EXIT: String(exitCode),
         NEXUS_TEST_INSTALLED: installedVersion,
         NEXUS_TEST_LAUNCH_FAIL: launchFailure ? '1' : '0',
+        NEXUS_TEST_MONITOR: monitor,
       },
     });
     assert.equal(result.error, undefined);
     const log = await readFile(join(home, 'Nexus', 'auto-update.log'), 'utf8');
     assert.match(result.stdout, /SIMULATED_TASK_CLEANUP/);
-    return { code: result.status, log, stderr: result.stderr };
+    const receipt = JSON.parse(await readFile(join(home, 'Nexus', 'last-install-receipt.json'), 'utf8'));
+    const args = await readFile(join(home, 'Nexus', 'installer-args.txt'), 'utf8').catch(() => '');
+    return { code: result.status, log, stderr: result.stderr, receipt, args };
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -77,23 +92,45 @@ test('silent updater returns a nonzero installer failure and does not claim succ
   const result = await runInstallerScenario(5, '1.17.1');
   assert.equal(result.code, 5, result.stderr + '\n' + result.log);
   assert.match(result.log, /Installer finished with exit code 5/);
+  assert.equal(result.receipt.exitCode, 5);
+  assert.equal(result.receipt.monitorVerified, false);
+  assert.match(result.args, /\/LOG=/);
   assert.doesNotMatch(result.log, /Installed Nexus version verified/);
 });
 
 test('silent updater succeeds only after the installed version matches', { skip: process.platform !== 'win32' }, async () => {
   const result = await runInstallerScenario(0, '1.18.0');
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.log, /Installed Nexus version verified: 1\.18\.0/);
+  assert.match(result.log, /Installed Nexus version and running managed monitor verified: 1\.18\.0/);
+  assert.equal(result.receipt.exitCode, 0);
+  assert.equal(result.receipt.monitorVerified, true);
+  assert.match(result.args, /\/LOG=/);
+  assert.match(result.receipt.installerLog, /installer-1\.18\.0-/);
 });
 
 test('silent updater rejects installer exit zero with stale registered version', { skip: process.platform !== 'win32' }, async () => {
   const result = await runInstallerScenario(0, '1.17.1');
   assert.equal(result.code, 1, result.stderr);
   assert.match(result.log, /installed version was not verified/);
+  assert.equal(result.receipt.exitCode, 1);
 });
 
 test('silent updater reports installer start errors without leaving a false success', { skip: process.platform !== 'win32' }, async () => {
   const result = await runInstallerScenario(0, '1.17.1', true);
   assert.equal(result.code, 1, result.stderr);
   assert.match(result.log, /Installer execution failed/);
+  assert.equal(result.receipt.exitCode, 1);
+});
+
+test('silent updater fails if setup exits zero but monitor task is absent', { skip: process.platform !== 'win32' }, async () => {
+  const result = await runInstallerScenario(0, '1.18.0', false, 'missing');
+  assert.equal(result.code, 1, result.stderr);
+  assert.equal(result.receipt.monitorVerified, false);
+  assert.match(result.log, /managed Nexus monitor or its scheduled task is not healthy/);
+});
+
+test('silent updater fails if monitor belongs to a different installation', { skip: process.platform !== 'win32' }, async () => {
+  const result = await runInstallerScenario(0, '1.18.0', false, 'wrong-root');
+  assert.equal(result.code, 1, result.stderr);
+  assert.equal(result.receipt.monitorVerified, false);
 });

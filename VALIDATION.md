@@ -1,5 +1,11 @@
 # Validation and acceptance
 
+## Unattended installer diagnostics and verified monitor receipt — 2026-11-21
+
+**Issue #60 increment:** The previous silent updater returned success when Inno Setup returned zero and the installed version matched, even if the monitor task was missing or port 8769 belonged to the wrong installation. A separate interactive install once returned exit code 7 without an Inno logfile. The updater now passes Inno Setup `/LOG` on every unattended install attempt, records its path in `%LOCALAPPDATA%\\Nexus\\auto-update.log`, and saves `%LOCALAPPDATA%\\Nexus\\last-install-receipt.json` with the target version, exit code, monitor verification state and diagnostic path. It requires a running `SharedHarness-Monitor` task and a responding, managed monitor whose root matches the registered installation before it returns success. It retries monitor health for a bounded period after setup.
+
+**Failure tests:** A simulated installer error keeps its nonzero exit, a stale registered version fails, a missing task fails, a healthy monitor under another root fails, and a healthy matching monitor passes. These tests mock Windows setup and never alter the installed Nexus. The focused Windows/Node22 suite passed 12/12. The published v1.18.2 installer and original user files are unchanged by this development-branch test. This change is diagnostic and verification hardening; Dhaval's target-machine acceptance still requires its own receipt.
+
 ## v1.18.2 installed-layout package hotfix — 2026-11-21
 
 The published v1.18.1 installer returned nonzero on a live v1.18.0 upgrade. It copied files, but setup failed in `Test-Package.ps1`: the check tried to parse `installer/Preflight.ps1`, although the install payload intentionally excludes the `installer` source directory. The v1.18.1 registry version was present while the monitor task and HTTP endpoint were absent. The revised check skips this one source-only script when it is not shipped, but continues to parse it in development/CI when it exists. The GitLab release job now also triggers for changes to `Test-Package.ps1`.
