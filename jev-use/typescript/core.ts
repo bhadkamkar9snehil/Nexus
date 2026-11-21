@@ -1,9 +1,3 @@
-/**
- * Runner primitives shared by every jev-use task: visual-region parsing,
- * candidate validation, and the mock chooser. Candidate sources are in
- * sources.ts and task specs in tasks.ts; the names re-exported below keep
- * existing imports from core.ts working.
- */
 import type { Candidate } from './sources.js';
 
 export type { Candidate } from './sources.js';

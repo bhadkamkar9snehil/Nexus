@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "batch": "nexus-001",
+  "sourceCommit": "5a08d42f2570776a8a92b0452e007b90b8487c87",
+  "status": "reviewed-removed",
+  "scope": "Nexus maintained source only; esbuild bundles protected",
+  "baseline": {
+    "files": 185,
+    "sourceLines": 27820,
+    "comments": 667,
+    "commentOnlyLines": 955,
+    "inlineCommentLines": 34
+  },
+  "afterBatch": {
+    "sourceLinesExcludingNewAuditTools": 27805,
+    "comments": 658,
+    "commentOnlyLines": 936,
+    "inlineCommentLines": 34
+  },
+  "classification": {
+    "tautology": {
+      "comments": 2,
+      "lines": 12
+    },
+    "excuse": {
+      "comments": 2,
+      "lines": 2
+    },
+    "stale": {
+      "comments": 0,
+      "lines": 0
+    },
+    "decisionRecord": {
+      "comments": 5,
+      "lines": 5
+    },
+    "generatedProtected": {
+      "comments": 166,
+      "commentOnlyLines": 230
+    },
+    "unreviewed": {
+      "comments": 492
+    }
+  },
+  "deleted": {
+    "commentTokens": 9,
+    "physicalCommentLines": 19,
+    "inlinePhysicalLines": 0
+  },
+  "items": [
+    {
+      "path": "jev-use/plugin-capabilities.ts",
+      "lines": [
+        104,
+        105
+      ],
+      "category": "Decision Record",
+      "tokens": 2,
+      "physicalLines": 2,
+      "adr": "docs/adr/0001-explicit-plugin-provider-selection.md"
+    },
+    {
+      "path": "jev-use/terminal-sessions.ts",
+      "lines": [
+        89,
+        105,
+        107
+      ],
+      "category": "Decision Record",
+      "tokens": 3,
+      "physicalLines": 3,
+      "adr": "docs/adr/0002-lossless-terminal-output-pagination.md"
+    },
+    {
+      "path": "jev-use/typescript/core.ts",
+      "line": 1,
+      "category": "Tautology",
+      "tokens": 1,
+      "physicalLines": 6
+    },
+    {
+      "path": "jev-use/typescript/jev_adapter.ts",
+      "line": 204,
+      "category": "Tautology",
+      "tokens": 1,
+      "physicalLines": 6
+    },
+    {
+      "path": "jev-use/typescript/native_platforms.test.ts",
+      "lines": [
+        115,
+        116
+      ],
+      "category": "Excuse",
+      "tokens": 2,
+      "physicalLines": 2,
+      "issue": "https://github.com/bhadkamkar9snehil/Nexus/issues/69"
+    }
+  ],
+  "estimatedRemainingRemovablePhysicalLinesUpperBound": 706,
+  "validationNote": "Full branch validation found one timed-out event-stream test out of 213; the isolated event-stream test subsequently passed. Package, MCP smoke, comment ratchet, and targeted ratchet unit tests passed.",
+  "release": "No release or main-branch changes. GitLab is the canonical upstream; this GitHub branch is for review."
+}
