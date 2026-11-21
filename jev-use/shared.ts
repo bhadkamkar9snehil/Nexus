@@ -19,6 +19,7 @@ import { playwrightBrowser } from './playwright-browser.js';
 import { searchContent } from './search-content.js';
 import { searchLocal } from './local-search.js';
 import { startProcess, readProcessOutput, interactWithProcess, listSessions, forceTerminate, listProcesses, killProcess } from './terminal-sessions.js';
+import { restartApplication, restartStatus } from './restart-application.js';
 import { listPeers, addPeer, setPeer, removePeer, sendMessage, readMailbox, markRead } from '../peers.mjs';
 import { loadWebhookConfig, configureWebhooks } from '../webhook-config.mjs';
 import { networkInterfaces } from 'node:os';
@@ -26,6 +27,8 @@ import { readTextFile } from './read-text-file.js';
 import { writeTextFile, editTextFile } from './write-text-file.js';
 import { readDocument } from './read-document.js';
 import { withDesktopLock } from './desktop-lock.js';
+import { selectWindow } from './window-selection.js';
+import { restoreWindow } from './restore-window.js';
 import { probeNetwork } from './network.js';
 import { findFiles, searchStatus } from './find-files.js';
 import { decide } from './decisions.js';
@@ -58,6 +61,8 @@ const tools = [
   tool('nexus_mail','Mail and chat between agents over peer connections. send delivers to an enabled peer; inbox/outbox list messages (unread_only for new); mark_read clears them. wait blocks until an unread message arrives (up to timeout_ms, default 30000, max 55000) and returns it without marking it read: call it in a loop for realtime agent-to-agent conversation.', { action: { type: 'string', enum: ['send', 'inbox', 'outbox', 'mark_read', 'wait'], default: 'inbox' }, to: string, kind: { type: 'string', enum: ['mail', 'chat'], default: 'mail' }, subject: string, body: string, unread_only: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 200 }, timeout_ms: { type: 'integer', minimum: 1000, maximum: 55000 }, ids: { type: 'array', items: string, maxItems: 200 } }, []),
   tool('list_processes', 'List Windows processes with PID, name, cumulative CPU seconds and working-set bytes. Bounded results.', { pid: { type: 'integer', minimum: 1 }, name: string, limit: { type: 'integer', minimum: 1, maximum: 200 } }, []),
   tool('kill_process', 'Kill a non-managed Windows process with exact name and start_identity from list_processes and confirm=true. Prefer force_terminate for Nexus sessions.', { pid: { type: 'integer', minimum: 1 }, expected_name: string, expected_start_time: string, confirm: { type: 'boolean' } }, ['pid', 'expected_name', 'expected_start_time', 'confirm']),
+  tool('restart_application', 'Schedule an independently supervised graceful restart of an interactive Windows application. Requires explicit authorization and exact identity from list_processes. Relaunches the executable with its original command-line arguments (the working directory is not restored); inspect restart_status after reconnecting.', { pid: { type: 'integer', minimum: 1 }, expected_name: string, expected_start_time: string, confirm: { type: 'boolean' } }, ['pid', 'expected_name', 'expected_start_time', 'confirm']),
+  tool('restart_status', 'Inspect the persisted result of an application restart by its id.', { id: string }, ['id']),
   tool('find_files', 'Find local files/folders quickly through the UFFS NTFS index. Optional query asks Jev to select the best metadata match. Never uses recursive PowerShell. Requires UFFS and its running broker/daemon.', { pattern: string, drive: { type: 'string', default: 'C' }, kind: { type: 'string', enum: ['any','file','folder'], default: 'any' }, limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, path_filter: string, query: string }, ['pattern']),
   tool('map_files', 'Map Downloads/Documents (or given roots) to projects: UFFS file list, content samples, Jev picks a project per folder/loose file. Writes map.csv + an interactive treemap.html under out_dir (default ~\\tools\\file-map). action "build" re-analyses everything; "view" only rebuilds the treemap and review page from the last map; "serve" starts a loopback-only server so the review pages save with one click (no dialog) and opens root_plan.html; "root_plan" proposes, as a dry run, which existing project folder each loose file in the Downloads/Documents roots belongs in (contents of existing folders are never touched). Read-only; never moves files. Names and short content excerpts are sent to TypeSafe.', { action: { type: 'string', enum: ['build', 'view', 'root_plan', 'serve'], default: 'build' }, roots: { type: 'array', items: string, maxItems: 5 }, out_dir: string, limit_units: { type: 'integer', minimum: 1 }, open: { type: 'boolean', default: false } }, []),
   tool('jev_search_content', 'Search local text with ripgrep and let Jev select the best excerpt. Read-only, scoped, bounded search. Requires rg on PATH. Candidate excerpts are sent to TypeSafe.', { root: string, pattern: string, query: string }, ['root', 'pattern', 'query']),
@@ -153,11 +158,18 @@ async function desktopTask(goal: string, app: string, expect: string, text: stri
     const windows = launched
       ? (launched.windows ?? []).map((w: any) => ({ ...w, pid: w.pid ?? launched.pid }))
       : (await driver.call('list_windows', {})).windows ?? [];
-    const matching = windows.filter((w: any) => !w.minimized && w.is_on_screen &&
-      (windowId === undefined || w.window_id === windowId) &&
-      [w.title, w.app_name].some(v => String(v).toLowerCase() === app.toLowerCase()));
-    if (matching.length !== 1) return result('Target must match exactly one visible window title or executable');
-    const { pid, window_id } = matching[0];
+    let selected = selectWindow(windows, app, windowId);
+    if (selected.minimized) {
+      // The exact target is minimized: restore it without taking focus and wait until the window manager reports it on screen.
+      await restoreWindow(selected.minimized.window_id!);
+      trace.push('Restored the minimized window without activating it');
+      for (let attempt = 0; attempt < 10 && !selected.window; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        selected = selectWindow((await driver.call('list_windows', {})).windows ?? [], app, windowId);
+      }
+    }
+    if (!selected.window) return result(selected.error ?? 'The minimized window did not restore');
+    const { pid, window_id } = selected.window as any;
     const jev = jevClient({ timeout: 8_000, retry: { maxRetries: 0 }, logLevel: 'off' });
     const deadline = performance.now() + 45_000;
     const words = new Set(goal.toLowerCase().match(/[a-z0-9]+/g));
@@ -237,7 +249,7 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
     const limit = args.max_steps ?? 10;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid max_steps');
     const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result'].includes(params.name);
-    const goal = decisionTool || ['jev_search_content', 'search_local', 'nexus_read_file', 'nexus_read_document', 'nexus_write_file','nexus_edit_file', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process', 'nexus_peers', 'nexus_mail', 'nexus_webhooks', 'nexus_events'].includes(params.name) ? '' : required('goal');
+    const goal = decisionTool || ['jev_search_content', 'search_local', 'nexus_read_file', 'nexus_read_document', 'nexus_write_file','nexus_edit_file', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process', 'restart_application', 'restart_status', 'nexus_peers', 'nexus_mail', 'nexus_webhooks', 'nexus_events'].includes(params.name) ? '' : required('goal');
     let output: string;
     if (decisionTool) {
       output = await decide(params.name, args, addUsage);
@@ -337,6 +349,10 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
       output = JSON.stringify(await listProcesses({ pid: args.pid as number | undefined, name: args.name as string | undefined, limit: args.limit as number | undefined }));
     } else if (params.name === 'kill_process') {
       output = JSON.stringify(await killProcess({ pid: args.pid as number, expected_name: required('expected_name'), expected_start_time: required('expected_start_time'), confirm: args.confirm as boolean }));
+    } else if (params.name === 'restart_application') {
+      output = JSON.stringify(await restartApplication({ pid: args.pid as number, expected_name: required('expected_name'), expected_start_time: required('expected_start_time'), confirm: args.confirm as boolean }));
+    } else if (params.name === 'restart_status') {
+      output = JSON.stringify(await restartStatus(required('id')));
     } else if (params.name === 'nexus_read_file') {
       output = JSON.stringify(await readTextFile({ path: required('path'), offset: args.offset as number | undefined, length: args.length as number | undefined }));
     } else if (params.name === 'nexus_read_document') {

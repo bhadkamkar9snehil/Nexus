@@ -17,7 +17,7 @@ Use the installed tools for supported capabilities. Do not write one-off scripts
 - Network investigation: `network_probe` inspects local interfaces and optionally probes explicitly supplied hosts, URLs or IPv4 subnets. A missing ICMP reply is not proof a host is absent. Choose the target scope deliberately.
 - Websites: `jev_browse`; it launches Chrome/Edge itself. Prefer `backend=playwright` and a stable session when cross-agent browser contention matters.
 - CDP browser tasks that generate text or written answers need a text helper. The optional local setup is in README.md; Playwright fills only caller-supplied fields and does not generate answers.
-- Native Windows controls: `jev_desktop`; use an exact app/window and explicit expected result. Packaged apps can use launch_aumid.
+- Native Windows controls: `jev_desktop`; use an exact app/window and explicit expected result. When the exact target is minimized, Nexus restores it without taking focus. Packaged apps can use launch_aumid.
 - Uncertain route, candidates, errors or supplied outcome evidence: `jev_select_workflow`, `jev_rank_results`, `jev_classify_failure`, `jev_verify_result`. Recommendations do not execute themselves; uncertain/null is a valid result.
 - File organization proposals: `map_files`; inspect its current schema. It builds maps and dry-run proposals, not file moves.
 
@@ -32,6 +32,8 @@ The monitor is http://127.0.0.1:8769/. Its connection indicator proves only that
 ## Verify and stop
 
 Supply a terminal expected state. Read the returned status and fresh app evidence before claiming success. A completed call, registered MCP entry, existing key or Jev evidence judgment alone does not prove the actual application outcome. Stop on unknown controls, authentication challenges, limits or ambiguous targets; do not silently substitute coordinate guesses.
+
+For an explicitly authorized application restart, use `restart_application` with the exact identity from `list_processes`; reconnect and inspect `restart_status`. It requests a graceful close and does not retain the original command-line arguments. A new process alone does not prove the application restored its session.
 
 ## Setup or repair
 

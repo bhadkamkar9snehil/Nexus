@@ -15,6 +15,8 @@ Always obtain the current catalog from shared_jev or Harness.ps1 tools; this ref
 | force_terminate | session_id or pid | stop managed process tree |
 | list_processes | none | pid, name, limit; cumulative CPU seconds and memory bytes |
 | kill_process | pid, expected_name, expected_start_time, confirm=true | non-managed process only; use start_identity from list_processes; user authorization required |
+| restart_application | pid, expected_name, expected_start_time, confirm=true | user-authorized graceful restart; returns restart id after supervisor is ready; relaunched with the original command-line arguments; the working directory is not restored |
+| restart_status | id | inspect the persisted restart outcome after reconnecting |
 | network_probe | none | host, ports, url, subnet, system, ping, trace, tls_port, timeout_ms; explicit scope for active probes |
 | map_files | none | action, roots, out_dir, limit_units, open |
 | jev_browse | goal, url, expect_text | browser, backend, session, fields, max_steps |

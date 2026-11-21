@@ -147,6 +147,8 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `nexus_events` | Poll Nexus events (MCP Events extension; push and webhook delivery are protocol methods): GitLab webhook events and peer messages, with cursors. |
 | `list_processes` | Inspect Windows PID, process name, cumulative CPU seconds and working-set memory. |
 | `kill_process` | Stop a non-managed process using its PID, exact name, observed start identity and explicit confirmation. |
+| `restart_application` | Hand an explicitly authorized graceful application restart to an independent Windows scheduled task. |
+| `restart_status` | Read the persisted state of a requested restart after reconnecting. |
 | `map_files` | Build file maps, review pages and dry-run organization proposals; it does not move files. |
 | `jev_browse` | Run a bounded Chrome or Edge task with an explicit goal and expected text. |
 | `jev_desktop` | Run a bounded accessibility-based Windows task against an identified app and expected state. |
@@ -181,7 +183,7 @@ flowchart LR
   E[Optional desktop EXE] --> U
 ```
 
-The driver uses `\\.\pipe\cua-driver` in the interactive Windows session. Browser profiles and named sessions are local and separate from personal browser profiles. Named Playwright sessions have cross-process locks; `session_busy` means the session is in use, not permission to delete its lock. Serialize desktop and legacy CDP requests across agents; their arbitration is not complete. Use an existing API for deterministic operations and Nexus tools for the supported computer-use and search tasks.
+The driver uses `\\.\pipe\cua-driver` in the interactive Windows session. Browser profiles and named sessions are local and separate from personal browser profiles. Named Playwright sessions have cross-process locks; `session_busy` means the session is in use, not permission to delete its lock. When an exact `jev_desktop` target is minimized, Nexus restores it without taking focus and continues; a visible window does not by itself prove the correct browser profile or authentication. Serialize desktop and legacy CDP requests across agents; their arbitration is not complete. Use an existing API for deterministic operations and Nexus tools for the supported computer-use and search tasks.
 
 ## Monitor and day-to-day operation
 
