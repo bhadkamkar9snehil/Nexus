@@ -86,7 +86,6 @@ async function snapshot(session: SessionState, offset: number, length: number, c
   let chars = 0, lineTruncated = false, continueAt: number | null = null;
   const firstIdx = idx;
   while (idx < lines.length && output.length < length) {
-    // char_offset resumes inside the first line when a previous page cut an oversized line.
     const skip = idx === firstIdx && offset >= baseLine ? charOffset : 0;
     const line = skip ? lines[idx].slice(skip) : lines[idx];
     const room = MAX_RESPONSE_CHARS - chars - (output.length ? 1 : 0);
@@ -102,9 +101,7 @@ async function snapshot(session: SessionState, offset: number, length: number, c
     chars += line.length + (output.length > 1 ? 1 : 0);
     idx++;
   }
-  // Re-read an unfinished last line so a later continuation cannot be skipped.
   const partial = live(session) && raw.length > 0 && !/[\r\n]$/.test(raw) && idx === lines.length && output.length > 0;
-  // An oversized line stays the current line: the next page continues it at next_char_offset, so nothing is lost.
   const next = continueAt !== null ? baseLine + idx : baseLine + idx - (partial ? 1 : 0);
   return {
     content: output.join('\n'), read_from: start, lines_read: output.length,

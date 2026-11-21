@@ -2599,7 +2599,7 @@
           "inline": true,
           "text": "// --- selection: click toggles, shift-click selects a range ---",
           "protectedCandidate": false,
-          "fingerprint": "be63bb4a4c4eeacc05953329854e53b9ebaf4a2975c4fad6fe75b81c4f869ba0"
+          "fingerprint": "b824543059b0d0d33436628fa6906fd209d89a0e022681987758061cc1a1981e"
         },
         {
           "line": 106,
@@ -2607,7 +2607,7 @@
           "inline": true,
           "text": "// --- assign (drag & drop, or the \"← here\" button) ---",
           "protectedCandidate": false,
-          "fingerprint": "a28f25453c4d5c2d8f7d8280a3ffd447b53e76fa906dadecc1e971ae680408b8"
+          "fingerprint": "4bf9a88eff1b6e39b0234a9c8ccb928dbc7a0401a4dd39ccd13953221af548e9"
         },
         {
           "line": 111,
@@ -2615,7 +2615,7 @@
           "inline": true,
           "text": "/* no redraw: replacing the node would cancel the drag */",
           "protectedCandidate": false,
-          "fingerprint": "6246417321e49f8d87134faa2d5d4ebe52aebe3f22738b485ce199e3f41b8a81"
+          "fingerprint": "c3fe48b780bcff9e0ecc0cef0f4767e7c512e964071db6a65ed568c3496ddd20"
         },
         {
           "line": 123,
@@ -2623,7 +2623,7 @@
           "inline": true,
           "text": "// --- toolbar ---",
           "protectedCandidate": false,
-          "fingerprint": "f812f5fd0b7f29e8c24f4e4a4ffee06264364020631c76349dc96b3acb5822f1"
+          "fingerprint": "4bc78bf16b3f460759b80dacec1c8b8466877c2c66c74fda664f7c14c13e4924"
         },
         {
           "line": 130,
@@ -2631,7 +2631,7 @@
           "inline": true,
           "text": "// --- save: only explicit decisions, merged into the file (earlier saves are kept) ---",
           "protectedCandidate": false,
-          "fingerprint": "e2cb088d6cebd36cfbc4963f369b9e334fafe82cc8760182b9c5cba1f82a74e2"
+          "fingerprint": "c3ed53b62200787229ae56900ed37d269c6aca900e66b14cb4787936bbff6be5"
         }
       ]
     },
@@ -2861,40 +2861,24 @@
           "fingerprint": "9fbb7a1dbf3f6262b1ec2762aea62c674c055e35a26b7bd04a65086b954424ba"
         },
         {
-          "line": 103,
-          "endLine": 103,
-          "inline": false,
-          "text": "// Core remains the default. A plugin runs only when an approved provider ID",
-          "protectedCandidate": false,
-          "fingerprint": "57d114126d383003f56a1670ac1d6cfc11926ced10353ae4d74a491ae8ced693"
-        },
-        {
-          "line": 104,
-          "endLine": 104,
-          "inline": false,
-          "text": "// is selected. No cloud or network fallback happens automatically.",
-          "protectedCandidate": false,
-          "fingerprint": "c780adee52480bafe03c487e035f1b7e53b698de099abba983903e9d6ced0728"
-        },
-        {
-          "line": 123,
-          "endLine": 123,
+          "line": 121,
+          "endLine": 121,
           "inline": false,
           "text": "// A normal timer keeps Node 22 alive while the provider is pending.",
           "protectedCandidate": false,
           "fingerprint": "186b7ff02779c04cae7acb1e7cbb44efe4b2ef75966a97ac1483369bb310b2b4"
         },
         {
-          "line": 124,
-          "endLine": 124,
+          "line": 122,
+          "endLine": 122,
           "inline": false,
           "text": "// AbortSignal.timeout alone uses an unref'd timer and can cancel a test before rejection.",
           "protectedCandidate": false,
           "fingerprint": "ac55f4f87fd6f93bfef738f98e739fcf32691be4c5de93f090038de8ed44d6ab"
         },
         {
-          "line": 134,
-          "endLine": 134,
+          "line": 132,
+          "endLine": 132,
           "inline": false,
           "text": "// Monitor status must never contain provider output, URLs, tokens or secret values.",
           "protectedCandidate": false,
@@ -3046,30 +3030,6 @@
           "text": "// (crash, kill, PID reuse): record that instead of reporting it running forever. Output already written is kept.",
           "protectedCandidate": false,
           "fingerprint": "2582205882949766de4eff81fe9d999603e401e9d3ac47c1f4c7351f5aab4275"
-        },
-        {
-          "line": 89,
-          "endLine": 89,
-          "inline": false,
-          "text": "// char_offset resumes inside the first line when a previous page cut an oversized line.",
-          "protectedCandidate": false,
-          "fingerprint": "9f00038f16554a23b2cb10f580adaf0046db0009da4dc149470cac6b9bcf1470"
-        },
-        {
-          "line": 105,
-          "endLine": 105,
-          "inline": false,
-          "text": "// Re-read an unfinished last line so a later continuation cannot be skipped.",
-          "protectedCandidate": false,
-          "fingerprint": "0617efa162af29e3d52749272198b44b515b8907f639b127d70bd256b03353e9"
-        },
-        {
-          "line": 107,
-          "endLine": 107,
-          "inline": false,
-          "text": "// An oversized line stays the current line: the next page continues it at next_char_offset, so nothing is lost.",
-          "protectedCandidate": false,
-          "fingerprint": "7d051e3087ee1224cbf07ff915b58eee468e049b4c4ba68fc45a54fa496f3381"
         }
       ]
     },
@@ -3341,32 +3301,24 @@
     "jev-use/typescript/core.ts": {
       "comments": [
         {
-          "line": 1,
-          "endLine": 6,
-          "inline": false,
-          "text": "/**\r\n * Runner primitives shared by every jev-use task: visual-region parsing,\r\n * candidate validation, and the mock chooser. Candidate sources are in\r\n * sources.ts and task specs in tasks.ts; the names re-exported below keep\r\n * existing imports from core.ts working.\r\n */",
-          "protectedCandidate": false,
-          "fingerprint": "eb32300f3bc0f9da0952a18363071ca33015f2dbfd3a5b001fc7b2ec88f74000"
-        },
-        {
-          "line": 66,
-          "endLine": 70,
+          "line": 60,
+          "endLine": 64,
           "inline": false,
           "text": "/**\r\n   * Driver's screenshot-to-action affine `[m11, m12, m21, m22, tx, ty]`. It is\r\n   * validated but never applied here: a capture-bound click sends the original\r\n   * screenshot point and `capture_id`, and Driver maps it once.\r\n   */",
           "protectedCandidate": false,
           "fingerprint": "e4aad91285cca615e7c2f0c926530fdc4000cb4670d0362229036a7830f1c490"
         },
         {
-          "line": 79,
-          "endLine": 86,
+          "line": 73,
+          "endLine": 80,
           "inline": false,
           "text": "/**\r\n * Return Driver's screenshot-to-action affine from `parse_visual_regions`.\r\n *\r\n * Driver reports `screenshot_pixels` for an identity transform and `affine`\r\n * otherwise (for example, a Retina window capture). The mapping must be finite\r\n * and invertible, matching Driver's own contract validation. Mirrors\r\n * `action_coordinate_mapping` in python/action_policy.py.\r\n */",
           "protectedCandidate": false,
           "fingerprint": "a1f0fa839b7353bc570c23aea2a1dfe3eaac68b6752887f3a3837f11dd13b6c1"
         },
         {
-          "line": 105,
-          "endLine": 105,
+          "line": 99,
+          "endLine": 99,
           "inline": false,
           "text": "/** Map one screenshot point, refusing a mapping that overflows it. */",
           "protectedCandidate": false,
@@ -3473,14 +3425,6 @@
           "text": "/** Build the fixture task's decision state; see taskDecisionState. */",
           "protectedCandidate": false,
           "fingerprint": "7c1093be4a5495c7ddbc981153de653fe6232ab88854b9f27869d12da24d9db2"
-        },
-        {
-          "line": 204,
-          "endLine": 209,
-          "inline": false,
-          "text": "/**\r\n * Deterministic mock provider. A task may declare mockPreferences: the first\r\n * preferred ID present wins (a refused control's `<id>:foreground` variant\r\n * counts as its ID), otherwise reobserve. Tasks without preferences keep the\r\n * fixed browser-fixture order.\r\n */",
-          "protectedCandidate": false,
-          "fingerprint": "6fba2370850103ed08019794e2e62081c2244b4da4d43dd4b79634287696a230"
         }
       ]
     },
@@ -3824,40 +3768,24 @@
           "fingerprint": "462783037f5da1bce46c720b3a98c84e12d30d7c283ed047c6d21505dabb9a47"
         },
         {
-          "line": 115,
-          "endLine": 115,
-          "inline": false,
-          "text": "// Known limitation of Cua Driver 0.30.2 (#4291): a named AT-SPI text",
-          "protectedCandidate": false,
-          "fingerprint": "5c92892d7bac651c13c0eb6a25777e637b6c22892733487899695e188180e194"
-        },
-        {
-          "line": 116,
-          "endLine": 116,
-          "inline": false,
-          "text": "// field reports no value, so the written note is not observable.",
-          "protectedCandidate": false,
-          "fingerprint": "e7369b6af3d769644a026ca2a6da54d16aff219d69d6ac13cb3461242656ae70"
-        },
-        {
-          "line": 150,
-          "endLine": 150,
+          "line": 148,
+          "endLine": 148,
           "inline": false,
           "text": "// WinUI3's automation peers report the same UIA control types as WPF. Its",
           "protectedCandidate": false,
           "fingerprint": "e9eed7a8ee4d90a64e14c9c988b1ec40477895168209f199e2de981e2f00216b"
         },
         {
-          "line": 151,
-          "endLine": 151,
+          "line": 149,
+          "endLine": 149,
           "inline": false,
           "text": "// TextBlock appears as static Text (WPF's task window has none), which is an",
           "protectedCandidate": false,
           "fingerprint": "f300f1310290b64370beab50a1037e0ba9085dfb06f435988f9f4cc0fa8ff708"
         },
         {
-          "line": 152,
-          "endLine": 152,
+          "line": 150,
+          "endLine": 150,
           "inline": false,
           "text": "// unknown role and never a candidate.",
           "protectedCandidate": false,
@@ -5875,6 +5803,9 @@
       "comments": []
     },
     "tests/InstallerTakeover.Tests.ps1": {
+      "comments": []
+    },
+    "tests/comment-ratchet.test.mjs": {
       "comments": []
     },
     "tools/comment-ratchet/check.mjs": {

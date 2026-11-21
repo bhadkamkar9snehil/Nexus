@@ -41,6 +41,10 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'npm dependency restore failed' }
         } finally { Pop-Location }
     }
+    Invoke-ValidationStep 'comment-ratchet' {
+        & node (Join-Path $root 'tools\comment-ratchet\check.mjs') check
+        if ($LASTEXITCODE -ne 0) { throw 'Comment ratchet validation failed' }
+    }
     Invoke-ValidationStep 'package-check' {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Test-Package.ps1')
         if ($LASTEXITCODE -ne 0) { throw 'Package check failed' }

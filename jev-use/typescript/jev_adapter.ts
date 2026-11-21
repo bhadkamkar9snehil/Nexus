@@ -201,12 +201,6 @@ export function chooseLiveForTask(
   return chooseForTask(new TypeSafeClient(), task, sources, candidates, history);
 }
 
-/**
- * Deterministic mock provider. A task may declare mockPreferences: the first
- * preferred ID present wins (a refused control's `<id>:foreground` variant
- * counts as its ID), otherwise reobserve. Tasks without preferences keep the
- * fixed browser-fixture order.
- */
 export function chooseMockForTask(
   task: Task,
   _sources: TaskSources,

@@ -100,8 +100,6 @@ export class PluginCapabilityRegistry {
     }));
   }
 
-  // Core remains the default. A plugin runs only when an approved provider ID
-  // is selected. No cloud or network fallback happens automatically.
   select(capability: Capability, providerId?: string): string | null {
     NexusCapability.parse(capability);
     if (!providerId || providerId === 'nexus.core') return null;

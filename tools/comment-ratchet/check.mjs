@@ -12,6 +12,7 @@ const special = new Set(['.gitignore','.gitattributes','.editorconfig']);
 const tsExt = new Set(['.ts','.tsx','.mts','.cts','.js','.jsx','.mjs','.cjs']);
 const psExt = new Set(['.ps1','.psm1','.psd1']);
 const xmlExt = new Set(['.xaml','.csproj','.props','.targets']);
+const generated = new Set(['jev-browse/bundled/cli.mjs','jev-browse/bundled/mcp.mjs']);
 const sha = s => crypto.createHash('sha256').update(s).digest('hex');
 const normalize = s => s.replace(/\s+/g, ' ').trim();
 
@@ -144,10 +145,10 @@ function psComments(entries) {
   return grouped;
 }
 
-function evaluate(source,ranges) {
+function evaluate(source,ranges,filename) {
   ranges.sort((a,b)=>a.start-b.start);
   for(let i=1;i<ranges.length;i++)if(ranges[i].start<ranges[i-1].end)throw Error('Overlapping comment tokens');
-  const mask=[...source];
+  const mask=source.split('');
   for(const r of ranges)for(let i=r.start;i<r.end;i++)if(mask[i]!=='\r'&&mask[i]!=='\n')mask[i]=' ';
   const code=mask.join('').split(/\r?\n/),original=source.split(/\r?\n/);
   const starts=[0];
@@ -169,11 +170,11 @@ function evaluate(source,ranges) {
     for(let j=first-1;j>=0;j--)if(code[j].trim()){before=normalize(code[j]);break;}
     for(let j=last+1;j<code.length;j++)if(code[j].trim()){after=normalize(code[j]);break;}
     const text=source.slice(r.start,r.end);
-    const protectedCandidate=/^#!|^#requires\b|^\/\/\/\s*<reference\b|(?:SPDX-License-Identifier|copyright\b|licensed under\b|@license\b|eslint-disable|@ts-(?:nocheck|check|ignore|expect-error))/i.test(text.trim());
+    const protectedCandidate=generated.has(filename) || /^#!|^#requires\b|^\/\/\/\s*<reference\b|(?:SPDX-License-Identifier|copyright\b|licensed under\b|@license\b|eslint-disable|@ts-(?:nocheck|check|ignore|expect-error))/i.test(text.trim());
     comments.push({line:first+1,endLine:last+1,inline:!!same,text,
       protectedCandidate,fingerprint:sha(text+'\n'+sha(JSON.stringify([before,same,after])))});
   }
-  return {lines:source.length?original.length:0,commentOnlyLines:only.size,inlineCommentLines:inline.size,comments};
+  return {lines:source.length?original.length-(source.endsWith('\n')?1:0):0,commentOnlyLines:only.size,inlineCommentLines:inline.size,comments};
 }
 
 async function collect() {
@@ -189,7 +190,7 @@ async function collect() {
       psExt.has(ext)?(powershell[e.file]||[]):
       ['.html','.htm'].includes(ext)?htmlComments(e.source,ts):
       xmlExt.has(ext)?xmlComments(e.source):lexicalComments(e.source,e.file);
-    result[e.file]=evaluate(e.source,ranges);
+    result[e.file]=evaluate(e.source,ranges,e.file);
   }
   return result;
 }
@@ -210,6 +211,10 @@ function summary(files) {
 function verify(current,base) {
   const violations=[], next={};
   for(const [file,data] of Object.entries(current)){
+    if (generated.has(file)) {
+      next[file]=base.files[file]||{comments:[]};
+      continue;
+    }
     const allowed=base.files[file]?.comments||[];
     const counts=new Map();
     for(const r of allowed)counts.set(r.fingerprint,(counts.get(r.fingerprint)||0)+1);
@@ -263,4 +268,7 @@ async function main() {
   }
   console.log('PASS '+mode+' '+JSON.stringify(stats));
 }
-main().catch(e=>{console.error(e.stack||String(e));process.exitCode=1;});
+export { collect, evaluate, verify, tsComments, lexicalComments };
+if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
+  main().catch(e=>{console.error(e.stack||String(e));process.exitCode=1;});
+}
