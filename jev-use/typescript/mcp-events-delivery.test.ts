@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import http from 'node:http';
@@ -20,7 +20,9 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const until = async (check: () => boolean, ms = 8000) => { const end = Date.now() + ms; while (!check()) { if (Date.now() > end) throw new Error('timed out'); await sleep(50); } };
 
 // A real https receiver with a self-signed certificate that this test (and the server it spawns) trusts.
-execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem'), '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], { stdio: 'ignore' });
+// openssl is on PATH on most machines; Git for Windows always ships one (a runner service need not have it on PATH).
+const openssl = spawnSync('openssl', ['version']).error ? 'C:\\Program Files\\Git\\usr\\bin\\openssl.exe' : 'openssl';
+execFileSync(openssl, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem'), '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], { stdio: 'ignore' });
 const cert = await readFile(join(dir, 'cert.pem'), 'utf8');
 https.globalAgent.options.ca = cert;
 process.env.NODE_EXTRA_CA_CERTS = join(dir, 'cert.pem');

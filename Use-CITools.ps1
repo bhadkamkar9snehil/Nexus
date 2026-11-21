@@ -1,4 +1,9 @@
 # Puts Node (with npm) and ripgrep on PATH for CI jobs when the runner lacks them. Dot-source it.
+# Windows PowerShell 5.1 draws a progress bar for downloads and unzips, which makes them many times slower.
+$ProgressPreference = 'SilentlyContinue'
+# The pinned build tools hold rg.exe; use it before downloading anything.
+$pinnedTools = 'C:\CI-Tools\nexus-build-tools-1'
+if (Test-Path -LiteralPath (Join-Path $pinnedTools 'rg.exe')) { $env:PATH = "$pinnedTools;$env:PATH" }
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     $version = 'v22.22.0'
     $asset = "node-$version-win-x64.zip"

@@ -9,6 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { Server } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { attachEvents, listEvents, pollEvents } from './events-extension.js';
+import { attachClaudeChannel, CHANNEL_INSTRUCTIONS } from './channel.js';
 import { jevClient, toolKey, withToolKey } from './key-routing.js';
 import { chooseBoundedWithTypeSafe } from './typescript/jev_adapter.js';
 import { parseWindowState } from './typescript/native.js';
@@ -194,8 +195,9 @@ async function desktopTask(goal: string, app: string, expect: string, text: stri
 }
 
 function createServer() {
-const server = new Server({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: CHANNEL_INSTRUCTIONS });
 attachEvents(server, root);
+attachClaudeChannel(server, root);
 server.setRequestHandler('tools/list', async () => ({ tools }));
 server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.name, async () => {
   const id = randomUUID();
