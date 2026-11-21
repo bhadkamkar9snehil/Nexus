@@ -50,6 +50,7 @@ foreach ($name in 'uffs','uffsd','uffs-broker','rg') {
 }
 $lock = (Get-FileHash -LiteralPath (Join-Path $stage 'jev-use\package-lock.json') -Algorithm SHA256).Hash
 Set-Content -LiteralPath (Join-Path $stage '.bundled-lock.sha256') -Value $lock -Encoding ASCII
+Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $Version -Encoding ASCII
 $manifest = Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
     [pscustomobject]@{name=$_.Name;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}
 }

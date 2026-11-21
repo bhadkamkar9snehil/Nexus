@@ -10,6 +10,7 @@ import { startPeerDiscovery } from './peers-auto.mjs';
 import { respondTo } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
 import { handleApi } from './peers-api.mjs';
+import { versionInfo } from './version.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
@@ -81,6 +82,7 @@ createServer(async (req, res) => {
     return send(result.status, 'application/json', JSON.stringify(result.json));
   }
   if (req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
+  if (req.url === '/version') return send(200, 'application/json', JSON.stringify(await versionInfo(import.meta.dirname)));
   if (req.url === '/monitor-status') return send(200, 'application/json', JSON.stringify({ application: 'shared-computer-use-monitor', root: import.meta.dirname, pid: process.pid,managed:process.env.HARNESS_MONITOR_MANAGED==='1' }));
   if (req.url === '/runtime') {
     try {

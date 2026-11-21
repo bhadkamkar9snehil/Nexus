@@ -16,6 +16,8 @@ const safe=<T,>(fn:()=>T,fallback:T):T=>{try{return fn();}catch{return fallback;
 const parse=()=>routes.some(r=>r.id===location.hash.slice(2))?location.hash.slice(2):'overview';
 function App(){
  const [view,View]=useState(parse),[collapsed,Collapse]=useState(safe(()=>localStorage.getItem('desk.nav.collapsed')==='1',false)),[dark,Dark]=useState(document.documentElement.classList.contains('dark')),[accent,Accent]=useState(safe(()=>localStorage.getItem('harness.accent')||'#4ceea8','#4ceea8'));
+ const [ver,Ver]=useState<{version:string;ahead:number;source:string;latest:string|null;newer:boolean}|null>(null);
+ useEffect(()=>{const t=async()=>{try{const r=await fetch('/version');if(r.ok)Ver(await r.json());}catch{/* shown on the next check */}};t();const i=setInterval(t,600000);return()=>clearInterval(i);},[]);
  const [runs,Runs]=useState<Run[]>([]),[error,SetError]=useState(''),[loaded,Loaded]=useState(false),[synced,Synced]=useState(0);
  const [tools,Tools]=useState<Tool[]>([]),[toolError,ToolError]=useState(''),[runtime,RuntimeState]=useState<Runtime|null>(null),[runtimeError,RuntimeError]=useState(''),[checking,Checking]=useState(false);
  useEffect(()=>{document.documentElement.style.setProperty('--brand',accent);safe(()=>localStorage.setItem('harness.accent',accent),undefined);},[accent]);
@@ -49,7 +51,7 @@ function App(){
     {view==='peers'&&<PeersView/>}
     {view==='settings'&&<SettingsView accent={accent} setAccent={Accent} dark={dark} theme={theme}/>}
    </div></div>
-   <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-canvas px-4 py-1.5 text-2xs text-subtle-foreground"><span className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full',error?'bg-destructive':'bg-signal')}/>Local monitor</span><span>{runs.length} recorded calls</span><span>{runs.filter(r=>r.status==='running').length} running</span><span className="ml-auto">{synced?'Updated '+new Date(synced).toLocaleTimeString():'Waiting for activity'} · 127.0.0.1:8769</span></footer>
+   <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-canvas px-4 py-1.5 text-2xs text-subtle-foreground"><span className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full',error?'bg-destructive':'bg-signal')}/>Local monitor</span>{ver&&<a href="#/updates" title={ver.source==='source'?'Running from a source checkout'+(ver.ahead?`, ${ver.ahead} commit(s) after this release`:''):'Installed version'} className="font-mono hover:text-foreground">v{ver.version}{ver.ahead?`+${ver.ahead}`:''}</a>}{ver?.newer&&<a href="#/updates" className="rounded-full bg-warning-soft px-2 py-0.5 font-medium text-warning hover:opacity-80">Update available · v{ver.latest}</a>}<span>{runs.length} recorded calls</span><span>{runs.filter(r=>r.status==='running').length} running</span><span className="ml-auto">{synced?'Updated '+new Date(synced).toLocaleTimeString():'Waiting for activity'} · 127.0.0.1:8769</span></footer>
   </main>
  </div>;
 }

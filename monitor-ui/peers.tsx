@@ -20,12 +20,13 @@ const time=(t:number)=>new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:
 
 export function PeersView(){
  const [info,Info]=useState<Info|null>(null),[error,Error_]=useState(''),[note,Note]=useState(''),[busy,Busy]=useState(''),[sel,Sel]=useState(''),[msgs,Msgs]=useState<Msg[]>([]),[draft,Draft]=useState(''),[code,Code]=useState<{code:string;expiresInMinutes:number}|null>(null),[entered,Entered]=useState(''),[copied,Copied]=useState(false);
- const end=useRef<HTMLDivElement>(null);
+ const end=useRef<HTMLDivElement>(null),last=useRef('');
  const load=useCallback(async()=>{try{const i=await api('/api/peers');Info(i);Error_('');Sel(s=>s&&i.peers.some((p:Peer)=>p.name===s)?s:i.peers.find((p:Peer)=>p.paired)?.name??'');}catch(e){Error_((e as Error).message);}},[]);
  const loadMsgs=useCallback(async()=>{if(!sel)return Msgs([]);try{Msgs((await api('/api/mail?peer='+encodeURIComponent(sel))).messages);}catch{/* next refresh */}},[sel]);
  useEffect(()=>{load();const t=setInterval(load,5000);return()=>clearInterval(t);},[load]);
  useEffect(()=>{loadMsgs();const t=setInterval(loadMsgs,2000);return()=>clearInterval(t);},[loadMsgs]);
- useEffect(()=>{end.current?.scrollIntoView({block:'end'});const unread=msgs.filter(m=>m.box==='in'&&!m.read).map(m=>m.id);if(unread.length)api('/api/mail/read',{ids:unread}).catch(()=>{});},[msgs]);
+ // Scroll only the chat box, and only when the conversation or its newest message changes (never the page, never on a plain refresh).
+ useEffect(()=>{const key=sel+':'+(msgs.at(-1)?.id??'');if(key!==last.current){last.current=key;const b=end.current;if(b)b.scrollTop=b.scrollHeight;}const unread=msgs.filter(m=>m.box==='in'&&!m.read).map(m=>m.id);if(unread.length)api('/api/mail/read',{ids:unread}).catch(()=>{});},[msgs,sel]);
  const run=async(label:string,fn:()=>Promise<unknown>,ok='')=>{Busy(label);Note('');try{await fn();if(ok)Note(ok);await load();}catch(e){Note((e as Error).message);}Busy('');};
  const send=async()=>{const body=draft.trim();if(!body||!sel)return;Draft('');try{await api('/api/mail/send',{to:sel,body,kind:'chat'});loadMsgs();}catch(e){Note((e as Error).message);Draft(body);}};
  if(!info)return <Panel icon={Monitor} title="Devices" meta={error||'Loading'}><p className="text-sm text-muted-foreground">{error?'The Nexus monitor is not answering. Start it and reopen this page.':'Loading…'}</p></Panel>;
@@ -56,11 +57,11 @@ export function PeersView(){
     <input aria-label="Pairing code from the other computer" className={field} placeholder="nexus-…" autoComplete="off" value={entered} onChange={e=>Entered(e.target.value)}/>
     <Button size="sm" disabled={!!busy||!entered.trim()} onClick={()=>run('pair',async()=>{const r=await api('/api/peers/pair',{code:entered});Entered('');Sel(r.name);},'Paired.')}>Pair</Button></section></div></Panel>
   <Panel icon={MessagesSquare} title="Conversation" meta={sel||'Select a paired device'} pad="none">
-   <div className="scrollbar-thin flex max-h-[26rem] min-h-40 flex-col gap-2 overflow-y-auto px-4 py-3" aria-live="polite">
+   <div ref={end} className="scrollbar-thin flex max-h-[26rem] min-h-40 flex-col gap-2 overflow-y-auto px-4 py-3" aria-live="polite">
     {!msgs.length&&<p className="text-sm text-muted-foreground">{sel?'No messages yet. Write below; the agent on that computer answers when it is set to.':'Pair a device to start.'}</p>}
     {msgs.map(m=><div key={m.id} className={cn('max-w-[85%] rounded-lg px-3 py-2 text-sm',m.box==='out'?'self-end bg-surface-3':'self-start border bg-surface')}>
      {m.subject&&m.kind==='mail'&&<p className="text-xs font-medium">{m.subject}</p>}<p className="whitespace-pre-wrap break-words">{m.body}</p><p className="mt-1 text-2xs text-subtle-foreground">{m.box==='out'?'You':m.peer} · {time(m.at)}</p></div>)}
-    <div ref={end}/></div>
+    </div>
    <form className="flex gap-2 border-t px-4 py-3" onSubmit={e=>{e.preventDefault();send();}}><input aria-label="Message" className={field} placeholder={sel?`Message ${sel}`:'Select a device'} disabled={!sel} value={draft} onChange={e=>Draft(e.target.value)}/><Button type="submit" size="sm" disabled={!sel||!draft.trim()}><Send/>Send</Button></form></Panel>
   <Panel icon={Bot} title="Agent replies" meta="Let my agent answer my other computers"><div className="max-w-xl space-y-3">
    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={info.responder.enabled} disabled={!!busy} onChange={e=>run('resp',()=>api('/api/responder',{enabled:e.target.checked}))}/>When one of my own computers sends a chat message, run my agent and send its answer back</label>
