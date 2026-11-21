@@ -1,5 +1,7 @@
 param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn)
 $ErrorActionPreference = 'Stop'
+# A silent install shows nothing, so keep what setup reported: a failure can then be diagnosed afterwards.
+try { Start-Transcript -Path (Join-Path $env:LOCALAPPDATA 'Nexus\setup.log') -Force | Out-Null } catch { }
 $existingTask = Get-ScheduledTask -TaskName 'SharedHarness-Monitor' -ErrorAction SilentlyContinue
 $monitorScript = Join-Path $PSScriptRoot 'Monitor.ps1'
 if ($existingTask -and $existingTask.Actions.Arguments -notlike ('*-File "' + $monitorScript + '" *')) {

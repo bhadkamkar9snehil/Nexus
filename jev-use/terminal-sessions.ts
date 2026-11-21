@@ -286,6 +286,6 @@ export async function killProcess(args: { pid: number; expected_name: string; ex
   const managed = (await allStates()).find(s => live(s) && (s.pid === args.pid || s.worker_pid === args.pid));
   if (managed) throw new Error('Managed Nexus session; use force_terminate to stop its process tree');
   const source = join(import.meta.dirname, 'process-identity.cs').replace(/'/g, "''");
-  await execPowerShell(`$ErrorActionPreference='Stop'; Add-Type -Path '${source}'; [NexusProcessIdentity]::Terminate(${args.pid}, '${args.expected_name}', '${args.expected_start_time}')`);
+  await execPowerShell(`$ErrorActionPreference='Stop'; [Environment]::CurrentDirectory=$env:TEMP; Add-Type -Path '${source}'; [NexusProcessIdentity]::Terminate(${args.pid}, '${args.expected_name}', '${args.expected_start_time}')`);
   return { status: 'done', pid: args.pid, process_name: observed.name, state: 'terminated', decisions: 0 };
 }

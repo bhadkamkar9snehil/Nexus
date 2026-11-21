@@ -7,6 +7,7 @@ import { runtimeStatus } from './runtime-status.mjs';
 import { events, startWebhook, webhookPort } from './webhook.mjs';
 import { startEventDelivery } from './events-webhooks.mjs';
 import { startPeerDiscovery } from './peers-auto.mjs';
+import { startAutoUpdate } from './auto-update.mjs';
 import { respondTo } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
 import { handleApi } from './peers-api.mjs';
@@ -134,6 +135,7 @@ createServer(async (req, res) => {
   startWebhook(import.meta.dirname, { onMessage: m => respondTo(import.meta.dirname, m, { log: console.error }) }).catch(e => console.error('Webhook receiver not started: ' + e.message));
   startEventDelivery(import.meta.dirname, { log: console.error });
   startPeerDiscovery(import.meta.dirname, { log: console.log });
+  startAutoUpdate(import.meta.dirname, { log: console.error });
   const session=process.env.HARNESS_MONITOR_SESSION;
   if(session){
     const marker=new URL('./.monitor-session',import.meta.url);

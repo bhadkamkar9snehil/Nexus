@@ -39,10 +39,11 @@ public sealed partial class UpdateHost(string root)
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(_root)), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Automatic updates are on unless the owner switched them off. Update-Nexus.ps1 (run by the monitor) does the installing, in a quiet moment.</summary>
     private static bool AutoUpdate()
     {
-        try { return JsonNode.Parse(File.ReadAllText(StateFile))?["autoUpdate"]?.GetValue<bool>() == true; }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { return false; }
+        try { return JsonNode.Parse(File.ReadAllText(StateFile))?["autoUpdate"]?.GetValue<bool>() != false; }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { return true; }
     }
 
     private static void SaveAutoUpdate(bool enabled)
@@ -106,11 +107,6 @@ public sealed partial class UpdateHost(string root)
     public async Task<string?> CheckAsync()
     {
         var latest = (await ReleasesAsync()).FirstOrDefault(r => r.InstallerUrl is not null && r.Sha256 is not null);
-        if (latest is not null && IsInstalledHere() && AutoUpdate() && Newer(latest.Tag, CurrentVersion()))
-        {
-            await InstallAsync(latest, automatic: true);
-            return null;
-        }
         if (latest is null || !Newer(latest.Tag, CurrentVersion()) || latest.Tag == NotifiedTag) return null;
         NotifiedTag = latest.Tag;
         return latest.Tag;
@@ -170,18 +166,18 @@ public sealed partial class UpdateHost(string root)
         return reply;
     }
 
-    private async Task<string> InstallAsync(Release release, bool automatic = false)
+    private async Task<string> InstallAsync(Release release)
     {
         if (!await _installGate.WaitAsync(0)) return "An update is already in progress.";
         try
         {
             if (_installerStarted) return "Nexus Setup is already running.";
-            return await LaunchInstallerAsync(release, automatic);
+            return await LaunchInstallerAsync(release);
         }
         finally { _installGate.Release(); }
     }
 
-    private async Task<string> LaunchInstallerAsync(Release release, bool automatic)
+    private async Task<string> LaunchInstallerAsync(Release release)
     {
         if (release.InstallerUrl is null || release.Sha256 is null) throw new InvalidOperationException("That release has no installer with a published checksum, so it is not installed.");
         var asset = new Uri(release.InstallerUrl);
@@ -203,8 +199,8 @@ public sealed partial class UpdateHost(string root)
             File.Delete(file);
             throw new InvalidOperationException("The download did not match the published checksum and was discarded.");
         }
-        if (automatic && (!AutoUpdate() || !Newer(release.Tag, CurrentVersion()))) return "Automatic update cancelled.";
-        if (!automatic && !Newer(release.Tag, CurrentVersion())) SaveAutoUpdate(false);
+        // Installing an older version by hand is a rollback: stop the updater from putting the newer one straight back.
+        if (!Newer(release.Tag, CurrentVersion())) SaveAutoUpdate(false);
         // Keep the keys and tool assignments so a bad version can be rolled back without re-entering them.
         var secrets = Path.Combine(_root, "secrets");
         if (Directory.Exists(secrets))

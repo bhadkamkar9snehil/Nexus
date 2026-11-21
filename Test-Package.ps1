@@ -9,6 +9,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Monitor syntax check failed.' }
     & node --check (Join-Path $PSScriptRoot 'jev-use\terminal-worker.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Terminal worker syntax check failed.' }
+    # Add-Type's compiler resolves System.dll from the process working directory first, and an installed copy keeps a .NET Core System.dll in its root.
+    [Environment]::CurrentDirectory = $env:TEMP
     Add-Type -Path (Join-Path $PSScriptRoot 'jev-use\process-identity.cs')
     & node --check (Join-Path $PSScriptRoot 'runtime-status.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime observation syntax check failed.' }

@@ -31,7 +31,7 @@ export function UpdatesView(){
    <p className="min-w-0 flex-1 text-sm">{!loaded||busy==='check'?'Checking GitLab…':latest&&latest.newer?<>Version <b>{latest.tag.replace(/^v/,'')}</b> is available.</>:latest?'You have the latest version.':'No releases found.'}</p>
    {latest?.newer&&<Button size="sm" disabled={!!busy} onClick={()=>install(latest)}><ArrowDownToLine/>Update now</Button>}
    <Button size="sm" variant="outline" disabled={!!busy} onClick={load}><RefreshCw/>Check now</Button></div>
-   {autoUpdateAvailable&&<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" role="switch" checked={autoUpdate} disabled={!!busy} onChange={e=>void setAutoUpdate(e.target.checked)}/>Install updates automatically</label>}
+   {autoUpdateAvailable&&<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" role="switch" checked={autoUpdate} disabled={!!busy} onChange={e=>void setAutoUpdate(e.target.checked)}/>Install updates automatically when I am away</label>}
    {latest?.newer&&<ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{changes(latest.notes).map((c,i)=><li key={i}>{c}</li>)}</ul>}
    {note&&<p role="status" className="mt-3 text-xs text-muted-foreground">{note}</p>}</Panel>
   <Panel icon={History} title="Versions" meta="Install any release, including older ones, to roll back" pad="none"><div className="divide-y">
