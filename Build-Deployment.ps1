@@ -73,6 +73,10 @@ New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 $output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"
 if (Test-Path -LiteralPath $output) { throw 'Output archive exists; choose a fresh version label.' }
 $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+if (-not $sevenZip) {
+    $installedSevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+    $sevenZip = Get-Command $installedSevenZip -ErrorAction SilentlyContinue
+}
 if ($sevenZip) {
     Push-Location $stageRoot
     try {
