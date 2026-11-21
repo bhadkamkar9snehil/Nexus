@@ -1,6 +1,6 @@
-// Agent-to-agent without a human: when a chat message arrives from one of the owner's own computers, run the owner's agent
-// headlessly (Claude Code by default) with the message, and send its answer back to that computer.
-// Safeguards against loops and runaway cost: only paired own devices, chat only, a hop counter (default 6), the reply
+// Agent-to-agent without a human: when a chat message arrives from any connected (paired, enabled) Nexus, run this
+// computer's agent headlessly (Claude Code, else Codex) with the message, and send its answer back.
+// Safeguards against loops and runaway cost: only paired enabled peers, chat only, a hop counter (default 6), the reply
 // "NO_REPLY" ends a conversation, one agent run per peer at a time, and a timeout.
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -33,17 +33,18 @@ export async function saveResponderConfig(root, { enabled, autonomy }) {
   return loadResponderConfig(root);
 }
 
-function findClaude() {
-  return new Promise((resolve) => execFile('where.exe', ['claude'], { windowsHide: true }, (error, stdout) => resolve(error ? null : stdout.split(/\r?\n/)[0].trim() || null)));
+function findClaude(name) {
+  return new Promise((resolve) => execFile('where.exe', [name], { windowsHide: true }, (error, stdout) => resolve(error ? null : stdout.split(/\r?\n/)[0].trim() || null)));
 }
 
 async function agentCommand(config) {
   if (config.command) return { command: config.command, args: config.args ?? [] };
-  const claude = await findClaude();
-  if (!claude) return null;
-  return { command: claude, args: config.autonomy === 'full'
+  const claude = await findClaude('claude');
+  if (claude) return { command: claude, args: config.autonomy === 'full'
     ? ['-p', '--permission-mode', 'bypassPermissions']
     : ['-p', '--allowedTools', 'mcp__shared_jev'] };
+  const codex = await findClaude('codex'); // machines with Codex instead of Claude Code
+  return codex ? { command: codex, args: ['exec', '-'] } : null;
 }
 
 function run({ command, args }, prompt, timeoutMs) {
@@ -68,10 +69,11 @@ export async function respondTo(root, message, { log = () => {}, send = sendMess
   const peer = await getPeer(root, message.peer);
   if (!config.enabled) return 'disabled';
   if (message.kind !== 'chat') return 'not a chat message';
-  if (!peer?.own) return 'peer is not one of the owner\'s own computers';
+  if (!peer?.enabled || peer.allow?.chat === false) return 'peer is not an enabled chat peer';
+  if (peer.responder?.enabled === false) return 'disabled';
   if (hop >= config.maxHops) return 'hop limit reached';
   const next = (busy.get(message.peer) ?? Promise.resolve()).then(async () => {
-    const agent = await agentCommand(config);
+    const agent = await agentCommand({ ...config, autonomy: peer.responder?.autonomy ?? config.autonomy });
     if (!agent) { log('Agent responder: no agent command found (install Claude Code or set command in agent-responder.json).'); return 'no agent'; }
     const me = await selfName(root);
     const prompt = `You are the AI agent running on the computer "${me}". The AI agent on the owner's other computer "${message.peer}" sent you this message (conversation step ${hop + 1}):\n\n${message.body}\n\n` +

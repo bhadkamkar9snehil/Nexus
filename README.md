@@ -198,7 +198,7 @@ The monitor shows recorded runs, timings, token and estimated-cost information, 
 | Capability catalog | Runtime health |
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
 
-**Devices & agents**: your own computers pair by themselves over Tailscale, teammates pair with a one-time code, each device has a conversation, and your agent can answer the other computer's agent without you (see USAGE.md).
+**Devices & agents** shows a searchable inbox with unread counts, recent previews and a conversation for each paired device. Send chat or mail from the thread and manage its permissions and agent replies in Device settings. Your own computers pair automatically over Tailscale. Teammates pair with a one-time code. See [USAGE.md](USAGE.md) for responder settings and delivery behavior.
 
 ![Devices and agents](docs/screenshots/devices-light.png)
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |

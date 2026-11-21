@@ -77,6 +77,62 @@ try{
  await go('Usage & cost');
  await page.getByRole('columnheader',{name:'Coverage',exact:true}).waitFor();
  assert.equal(await page.locator('pre').count(),0);
+ // Use demo conversations so screenshots never contain private peer data.
+ const responder={enabled:true,autonomy:'safe'};
+ const device={name:'Workshop PC',url:'http://192.0.2.2:8770',enabled:true,paired:true,own:true,online:true,allow:{chat:true,mail:true},responder:{}};
+ const fixture={self:{name:'Demo laptop',addresses:['192.0.2.1'],tailscale:true},firewall:{open:true,port:8770},peers:[device],responder};
+ const at=Date.UTC(2026,10,21,9);
+ let unread=1;
+ const messages=[
+  {id:'1',box:'out',at,kind:'chat',body:'Is the demo board ready?',hop:0,read:true},
+  {id:'2',box:'in',at:at+1000,kind:'chat',body:'The demo board is ready for review.',hop:1,read:false},
+ ];
+ await page.route('**/api/**',async route=>{
+  const url=new URL(route.request().url());
+  if(url.pathname==='/api/peers')return route.fulfill({json:fixture});
+  if(url.pathname==='/api/mail')return route.fulfill({json:url.searchParams.has('summary')
+   ? {threads:[{peer:device.name,unread,latest:{at:at+1000,box:'in',preview:messages[1].body}}]}
+   : {messages}});
+  if(url.pathname==='/api/mail/read'){unread=0;messages[1].read=true;return route.fulfill({json:{}});}
+  if(url.pathname==='/api/mail/send'){
+   const {kind,subject,body}=route.request().postDataJSON();
+   assert.equal(kind,'mail');
+   messages.push({id:'3',box:'out',at:at+2000,kind,subject,body,read:true});
+   return route.fulfill({json:{}});
+  }
+  if(url.pathname==='/api/responder'){
+   const {peer,enabled}=route.request().postDataJSON();
+   assert.equal(peer,device.name);
+   device.responder.enabled=enabled;
+   return route.fulfill({json:device});
+  }
+  return route.abort();
+ });
+ await page.getByRole('button',{name:'Devices & agents',exact:true}).click();
+ await page.getByLabel('1 unread',{exact:true}).waitFor();
+ const search=page.getByRole('searchbox',{name:'Search inbox'});
+ await search.fill('does not exist');
+ await page.getByText('No matching devices').waitFor();
+ await search.fill('demo board');
+ await page.getByRole('button',{name:/Workshop PC/}).click();
+ await page.getByText('Agent replied automatically',{exact:true}).waitFor();
+ await page.getByRole('combobox',{name:'Message type'}).selectOption('mail');
+ await page.getByRole('textbox',{name:'Subject'}).fill('Review complete');
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('The demo board is approved.');
+ await page.getByRole('button',{name:'Send',exact:true}).click();
+ await page.getByText('Review complete',{exact:true}).waitFor();
+ await page.getByText('Device settings',{exact:true}).click();
+ const autoReply=page.getByRole('switch',{name:'Agent auto-reply',exact:true});
+ await autoReply.click();
+ await page.getByRole('switch',{name:'Agent auto-reply',exact:true,checked:false}).waitFor();
+ await page.getByText('Device settings',{exact:true}).click();
+ await screenshot('devices-light.png');
+ await page.setViewportSize({width:390,height:844});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.getByRole('button',{name:'Back to inbox',exact:true}).click();
+ await search.waitFor();
+ await page.setViewportSize({width:1600,height:1100});
+ await page.unroute('**/api/**');
  await go('Settings');await page.getByRole('button',{name:'Use #a78bfa',exact:true}).click();
  assert.equal(await page.getByRole('button',{name:'Use #a78bfa',exact:true}).getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'Use dark theme',exact:true}).click();

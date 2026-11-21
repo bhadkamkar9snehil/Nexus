@@ -112,11 +112,12 @@ test('the agent responder answers chat from own devices, stops at NO_REPLY and t
   assert.equal(sent[0].body, 'Done: build the release');
   assert.equal(await respondTo(root, msg({ body: 'ok thanks!' }), { send }), 'finished');
   assert.equal(await respondTo(root, msg({ hop: 3 }), { send }), 'hop limit reached');
-  assert.equal(await respondTo(root, msg({ peer: 'stranger' }), { send }), "peer is not one of the owner's own computers");
+  assert.equal(await respondTo(root, msg({ peer: 'stranger' }), { send }), 'replied'); // every connected peer is answered, not only own devices
+  assert.equal(await respondTo(root, msg({ peer: 'nobody' }), { send }), 'peer is not an enabled chat peer');
   assert.equal(await respondTo(root, msg({ kind: 'mail' }), { send }), 'not a chat message');
   await writeFile(join(root, 'secrets', 'agent-responder.json'), JSON.stringify({ enabled: false }));
   assert.equal(await respondTo(root, msg({}), { send }), 'disabled');
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
 });
 
 test('setPeer, getPeer and selfName behave', async () => {

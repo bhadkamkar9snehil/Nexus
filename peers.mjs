@@ -17,7 +17,7 @@ async function save(root, config) {
   await mkdir(folder(root), { recursive: true });
   await writeFile(file(root, 'peers.json'), JSON.stringify(config, null, 2));
 }
-const clean = ({ name, url, enabled, allow, outbound, own }) => ({ name, url, enabled, allow, paired: Boolean(outbound), own: Boolean(own) });
+const clean = ({ name, url, enabled, allow, outbound, own, responder }) => ({ name, url, enabled, allow, paired: Boolean(outbound), own: Boolean(own), responder });
 
 /** The name this installation introduces itself with: the computer name unless `self` is set in peers.json. */
 export async function selfName(root) {
@@ -43,7 +43,7 @@ export async function addPeer(root, { name, url, outbound, allow, own }) {
   return { ...clean(peer), inbound: peer.inbound };
 }
 
-export async function setPeer(root, name, { enabled, allow, outbound }) {
+export async function setPeer(root, name, { enabled, allow, outbound, responder }) {
   const config = await load(root);
   const peer = config.peers.find(p => p.name === name);
   if (!peer) throw new Error('Unknown peer');
@@ -53,6 +53,12 @@ export async function setPeer(root, name, { enabled, allow, outbound }) {
   }
   if (typeof enabled === 'boolean') peer.enabled = enabled;
   if (allow) for (const kind of kinds) if (typeof allow[kind] === 'boolean') peer.allow[kind] = allow[kind];
+  if (responder) {
+    peer.responder ??= {};
+    if (typeof responder.enabled === 'boolean') peer.responder.enabled = responder.enabled;
+    if (responder.autonomy === null) delete peer.responder.autonomy;
+    if (['safe', 'full'].includes(responder.autonomy)) peer.responder.autonomy = responder.autonomy;
+  }
   await save(root, config);
   return clean(peer);
 }
@@ -64,7 +70,7 @@ export async function removePeer(root, name) {
 }
 
 // The mailbox is append-only JSON lines: message rows and read-marker rows, folded on read.
-export async function readMailbox(root, { box = 'in', unread = false, limit = 50 } = {}) {
+async function mailbox(root) {
   let text = '';
   try { text = await readFile(file(root, 'mailbox.jsonl'), 'utf8'); } catch { /* empty mailbox */ }
   const read = new Set(), messages = [];
@@ -72,8 +78,25 @@ export async function readMailbox(root, { box = 'in', unread = false, limit = 50
     if (!line) continue;
     try { const row = JSON.parse(line); if (row.read) read.add(row.read); else messages.push(row); } catch { /* skip partial line */ }
   }
-  return messages.filter(m => m.box === box && !(unread && read.has(m.id)))
-    .map(m => ({ ...m, read: read.has(m.id) })).reverse().slice(0, Math.min(Math.max(limit, 1), 200));
+  return messages.map(m => ({ ...m, read: read.has(m.id) }));
+}
+
+export async function readMailbox(root, { box = 'in', peer, unread = false, limit = 50 } = {}) {
+  return (await mailbox(root)).filter(m => m.box === box && (!peer || m.peer === peer) && !(unread && m.read))
+    .reverse().slice(0, Math.min(Math.max(limit, 1), 200));
+}
+
+export async function mailboxSummary(root) {
+  const summaries = new Map();
+  for (const m of await mailbox(root)) {
+    if (!summaries.has(m.peer)) summaries.set(m.peer, { peer: m.peer, unread: 0, latest: null });
+    const summary = summaries.get(m.peer);
+    if (m.box === 'in' && !m.read) summary.unread++;
+    if (!summary.latest || m.at >= summary.latest.at) {
+      summary.latest = { at: m.at, box: m.box, preview: m.subject?.trim() || m.body.trim().slice(0, 160) };
+    }
+  }
+  return [...summaries.values()];
 }
 
 export async function markRead(root, ids) {
