@@ -105,11 +105,11 @@ The terminal worker removes API-key-like variables from the environment before s
 
 ## Peers, mail and chat
 
-When generating or entering a pairing code in Devices & agents, choose whether this computer should reply automatically to that device. Each computer sets its own preference. Device settings lets you change it later.
+When generating or entering a pairing code in Devices, choose whether this computer should reply automatically to that device. Each computer sets its own preference. The Auto-reply column in the paired computers table changes it later.
 
 For GitLab event forwarding, `nexus_webhooks configure` accepts `forwardEvents`. For example, `["release"]` forwards release notifications without forwarding issue chatter to the selected peers. A retry with the same GitLab event UUID is acknowledged without repeating notifications or forwarding while the event remains in the log.
 
-Nexus installations connect directly. Open **Devices & agents** in the monitor or desktop app to search the inbox by device name or latest preview, see unread counts, and open a device's chat and mail thread. Device settings controls the device connection, chat, mail, auto-reply and autonomy. Pair another computer generates or accepts a one-time code. This computer shows addresses, Tailscale and firewall state, and responder defaults.
+Nexus installations connect directly. Open **Inbox** in the monitor or desktop app to search by device name or latest preview, see unread counts, and read and write a device's chat and mail thread (Ctrl+Enter sends). Open **Devices** to control each computer's connection, chat, mail, auto-reply and autonomy in one table; Pair a computer generates or accepts a one-time code. The This computer panel shows addresses, Tailscale and firewall state, and responder defaults. Agent hosts that run hooks get unread messages through `nexus-hook.mjs`, and Claude Code started with `claude-nexus` receives them as channel events.
 
 **Your own computers pair by themselves.** Tailscale authenticates every packet on the tailnet and knows which account owns each device, so Nexus asks every online Windows device of the same account for a handshake (`/peer/hello`, about every 30 seconds) and a device that answers from an address of your own account is trusted: both sides store each other's token in that one exchange. Nothing is typed. Phones, Linux machines, other people's devices and sleeping computers are skipped, and a device without Nexus leaves nothing behind.
 

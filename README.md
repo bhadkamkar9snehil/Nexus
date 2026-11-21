@@ -198,9 +198,10 @@ The monitor shows recorded runs, timings, token and estimated-cost information, 
 | Capability catalog | Runtime health |
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
 
-**Devices & agents** shows a searchable inbox with unread counts, recent previews and a conversation for each paired device. Send chat or mail from the thread and manage its permissions and agent replies in Device settings. Your own computers pair automatically over Tailscale. Teammates pair with a one-time code. See [USAGE.md](USAGE.md) for responder settings and delivery behavior.
+**Inbox** is the messaging page: a searchable list of paired computers with unread counts and previews, and a thread that fills the window, scrolls inside itself and keeps the composer in place. Forwarded GitLab events show as one line, never as raw JSON. **Devices** manages the computers: this computer's network state and responder defaults, and one table of paired computers with enable, mail, chat, auto-reply and autonomy controls. Pair a computer opens the code form in place. Your own computers pair automatically over Tailscale. Teammates pair with a one-time code. **Agents & tools** lists the registered agents and the capability catalog; Terminal sessions stay closed, and are not fetched, until you open them. See [USAGE.md](USAGE.md) for responder settings and delivery behavior.
 
-![Devices and agents](docs/screenshots/devices-light.png)
+| ![Inbox](docs/screenshots/inbox-light.png) | ![Devices](docs/screenshots/devices-light.png) |
+|---|---|
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
 
 <details><summary>More monitor views</summary>

@@ -52,11 +52,15 @@ try{
  await screenshot('overview-light.png');
  await go('Agents & tools');
  await page.getByRole('heading',{name:'Capability catalog',exact:true}).waitFor();
+ assert.equal(await page.getByRole('heading',{name:'Terminal sessions',exact:true}).count(),0); // not shown, not fetched, until opened
+ await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();
  await page.getByRole('heading',{name:'Terminal sessions',exact:true}).waitFor();
  await page.waitForFunction(()=>!document.body.innerText.includes('Checking sessions…'));
  const sessionResult=await (await page.request.get(origin+'/sessions')).json();
  assert.ok(Array.isArray(sessionResult.sessions));
  for(const session of sessionResult.sessions) assert.deepEqual(Object.keys(session).sort(),['ended_at','exit_code','pid','session_id','shell','started_at','state']);
+ await page.getByRole('button',{name:'Terminal sessions',exact:true}).click(); // close it again: the page is shown without it
+ assert.equal(await page.getByRole('heading',{name:'Terminal sessions',exact:true}).count(),0);
  await page.getByRole('group',{name:'Tool categories'}).getByRole('button',{name:/^Terminal/}).click();
  for(const name of ['Start a process','Read process output','Send process input','List terminal sessions','Terminate a session','List processes','Terminate a process']) await page.getByRole('button',{name:new RegExp('^'+name)}).waitFor();
  await page.getByRole('button',{name:/^Terminate a process/}).click();
@@ -84,6 +88,7 @@ try{
  const at=Date.UTC(2026,10,21,9);
  let unread=1;
  const messages=[
+  {id:'0',box:'out',at:at-1000,kind:'mail',subject:'GitLab: Comment by root',body:JSON.stringify({id:'e1',kind:'note',project:'ssm/demo',title:'Comment by root'}),hop:0,read:true},
   {id:'1',box:'out',at,kind:'chat',body:'Is the demo board ready?',hop:0,read:true},
   {id:'2',box:'in',at:at+1000,kind:'chat',body:'The demo board is ready for review.',hop:1,read:false},
  ];
@@ -108,26 +113,37 @@ try{
   }
   return route.abort();
  });
- await page.getByRole('button',{name:'Devices & agents',exact:true}).click();
- await page.getByLabel('1 unread',{exact:true}).waitFor();
+ await go('Inbox');
+ await page.getByLabel('1 unread',{exact:true}).first().waitFor();
  const search=page.getByRole('searchbox',{name:'Search inbox'});
  await search.fill('does not exist');
  await page.getByText('No matching devices').waitFor();
  await search.fill('demo board');
  await page.getByRole('button',{name:/Workshop PC/}).click();
  await page.getByText('Agent replied automatically',{exact:true}).waitFor();
+ await page.getByText('Comment by root',{exact:false}).first().waitFor(); // a forwarded GitLab event shows as one line
+ assert.equal(await page.getByText('"project"',{exact:false}).count(),0); // never as raw JSON
+ const listHeight=async()=>(await page.locator('aside[aria-label="Conversations"]').boundingBox()).height;
+ const before=await listHeight();
  await page.getByRole('combobox',{name:'Message type'}).selectOption('mail');
  await page.getByRole('textbox',{name:'Subject'}).fill('Review complete');
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('The demo board is approved.');
  await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.getByText('Review complete',{exact:true}).waitFor();
- await page.getByText('Device settings',{exact:true}).click();
- const autoReply=page.getByRole('switch',{name:'Agent auto-reply',exact:true});
- await autoReply.click();
- await page.getByRole('switch',{name:'Agent auto-reply',exact:true,checked:false}).waitFor();
- await page.getByText('Device settings',{exact:true}).click();
+ assert.equal(await listHeight(),before); // the inbox never grows with its messages
+ assert.equal(await page.getByRole('log',{name:'Messages'}).evaluate(e=>e.scrollHeight>=e.clientHeight),true);
+ await screenshot('inbox-light.png');
+ await go('Devices');
+ await page.getByRole('heading',{name:'Paired computers',exact:true}).waitFor();
  await screenshot('devices-light.png');
+ await page.getByRole('switch',{name:'Workshop PC agent auto-reply',exact:true}).click();
+ await page.getByRole('switch',{name:'Workshop PC agent auto-reply',exact:true,checked:false}).waitFor();
+ await page.getByRole('button',{name:'Pair a computer',exact:true}).click();
+ await page.getByRole('textbox',{name:'Pairing code from the other computer'}).waitFor();
  await page.setViewportSize({width:390,height:844});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.getByRole('combobox',{name:'Page',exact:true}).selectOption('inbox');
+ await page.getByRole('button',{name:/Workshop PC/}).click();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.getByRole('button',{name:'Back to inbox',exact:true}).click();
  await search.waitFor();

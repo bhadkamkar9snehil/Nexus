@@ -68,6 +68,7 @@ lucide-react/dist/esm/icons/arrow-down-to-line.js:
 lucide-react/dist/esm/icons/arrow-down.js:
 lucide-react/dist/esm/icons/arrow-left.js:
 lucide-react/dist/esm/icons/arrow-up.js:
+lucide-react/dist/esm/icons/bell.js:
 lucide-react/dist/esm/icons/book-open.js:
 lucide-react/dist/esm/icons/bot.js:
 lucide-react/dist/esm/icons/check.js:
@@ -94,6 +95,7 @@ lucide-react/dist/esm/icons/refresh-cw.js:
 lucide-react/dist/esm/icons/rotate-ccw.js:
 lucide-react/dist/esm/icons/search.js:
 lucide-react/dist/esm/icons/send.js:
+lucide-react/dist/esm/icons/settings-2.js:
 lucide-react/dist/esm/icons/settings.js:
 lucide-react/dist/esm/icons/shield-check.js:
 lucide-react/dist/esm/icons/sun.js:

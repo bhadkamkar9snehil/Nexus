@@ -11,14 +11,16 @@ if (-not $last) { throw 'No previous vX.Y.Z tag to bump from.' }
 $subjects = @(git log "$last..HEAD" --no-merges --pretty=format:%s | Where-Object { $_ })
 if (-not $subjects) { Write-Host "No commits since $last; nothing to release."; exit 0 }
 $major, $minor, $patch = ($last.TrimStart('v') -split '\.') | ForEach-Object { [int]$_ }
-if ($subjects -match '^(?i)(feat|add|new)\b') { $minor++; $patch = 0 } else { $patch++ }
+# Subjects look like "shared-computer-use: add the inbox"; a feature word after the optional prefix bumps the minor version.
+if ($subjects -match '^(?i)(?:[\w-]+:\s*)?(feat|add|new)\b') { $minor++; $patch = 0 } else { $patch++ }
 $version = "$major.$minor.$patch"
 $tag = "v$version"
 Write-Host "Releasing $tag (previous $last)"
 
 ./Build-Deployment.ps1 -Version $version -Installer
-$files = Get-ChildItem dist -File | Where-Object { $_.Name -like "*-$version-windows-x64.*" }
-if ($files.Count -lt 2) { throw "Expected installer and ZIP for $version in dist." }
+# Only the installer is published: the updater and every install use it, and the ZIP would add 114 MB to each upload.
+$files = Get-ChildItem dist -File | Where-Object { $_.Name -eq "Nexus-Harness-Setup-$version-windows-x64.exe" }
+if ($files.Count -ne 1) { throw "Expected the installer for $version in dist." }
 
 $sums = @(); $links = @(); $uploads = @()
 foreach ($f in $files) {
