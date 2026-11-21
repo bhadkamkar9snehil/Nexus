@@ -6,6 +6,7 @@ runs.jsonl
 *.log
 .env
 dist/
+ci-evidence/
 !monitor-ui/dist/
 !monitor-ui/dist/**
 .ci-tools/

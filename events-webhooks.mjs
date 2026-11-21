@@ -4,7 +4,8 @@
 // The MCP server process handles events/subscribe and events/unsubscribe (it writes subscriptions.json); the monitor host
 // runs the delivery loop (it writes delivery-state.json). Each file has one writer.
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
@@ -20,13 +21,37 @@ const subsFile = (root) => join(dir(root), 'event-subscriptions.json');
 const stateFile = (root) => join(dir(root), 'event-delivery-state.json');
 
 async function readJson(path, fallback) {
-  try { return JSON.parse(await readFile(path, 'utf8')); } catch { return fallback; }
+  for (let attempt = 0; attempt <= 5; attempt++) {
+    try { return JSON.parse(await readFile(path, 'utf8')); }
+    catch (error) {
+      if (error?.code === 'ENOENT') return fallback;
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || attempt === 5) throw error;
+      await sleep(20 * 2 ** attempt);
+    }
+  }
 }
 async function writeJson(path, value) {
   await mkdir(join(path, '..'), { recursive: true });
   const temp = path + '.' + randomBytes(4).toString('hex') + '.tmp';
-  await writeFile(temp, JSON.stringify(value));
-  await rename(temp, path);
+  let committed = false;
+  try {
+    await writeFile(temp, JSON.stringify(value));
+    // On Windows, antivirus or a concurrent short-lived reader may briefly hold
+    // the old destination open. Never remove the destination before replacement.
+    for (let attempt = 0; attempt <= 6; attempt++) {
+      try {
+        await rename(temp, path);
+        committed = true;
+        return;
+      } catch (error) {
+        const code = error?.code;
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(code) || attempt === 6) throw error;
+        await sleep(20 * 2 ** attempt);
+      }
+    }
+  } finally {
+    if (!committed) await rm(temp, { force: true }).catch(() => {});
+  }
 }
 const loadSubs = async (root) => await readJson(subsFile(root), { subs: {} });
 

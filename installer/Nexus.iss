@@ -33,6 +33,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "desktop,installer,.git*"
 Source: "Preflight.ps1"; Flags: dontcopy
+Source: "..\Nexus-Takeover.ps1"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\Nexus Harness"; Filename: "{app}\Nexus.Desktop.exe"; WorkingDir: "{app}"
@@ -58,6 +59,7 @@ var ResultCode: Integer; ResultFile, Params: String; Detail: AnsiString;
 begin
   Result := '';
   ExtractTemporaryFile('Preflight.ps1');
+  ExtractTemporaryFile('Nexus-Takeover.ps1');
   ResultFile := ExpandConstant('{tmp}\nexus-preflight.txt');
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\Preflight.ps1') + '" -InstallDir "' + ExpandConstant('{app}') + '" -ResultFile "' + ResultFile + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then

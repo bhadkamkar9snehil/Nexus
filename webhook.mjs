@@ -23,10 +23,30 @@ export async function webhookSecret(root) {
   return secret;
 }
 
-function summarize(kind, body) {
+export function summarize(kind, body) {
   const project = body.project?.path_with_namespace ?? '';
   if (kind === 'release') return { project, title: `${body.name || body.tag} ${body.action || ''}`.trim(), tag: body.tag };
-  if (kind === 'pipeline') return { project, title: `Pipeline ${body.object_attributes?.status} on ${body.object_attributes?.ref}` };
+  if (kind === 'pipeline') {
+    const attrs = body.object_attributes ?? {};
+    const safe = value => String(value ?? '').replace(/[\r\n\t]/g, ' ').slice(0, 80);
+    const id = Number.isSafeInteger(attrs.id) ? ' #' + attrs.id : '';
+    const status = safe(attrs.status || 'unknown').slice(0, 24);
+    const ref = safe(attrs.ref || 'unknown');
+    const rawSha = String(attrs.sha || body.commit?.id || '');
+    const sha = /^[0-9a-f]{40}$/i.test(rawSha) ? ' @' + rawSha.slice(0, 10) : '';
+    const seconds = value => Number.isFinite(value) && value >= 0 && value <= 86400
+      ? Math.round(value) + 's' : '';
+    const duration = seconds(attrs.duration);
+    const builds = Array.isArray(body.builds) ? body.builds : [];
+    const failed = builds.filter(job => job?.status === 'failed').slice(0, 4)
+      .map(job => safe(job.name || 'unknown').slice(0, 35));
+    const jobs = builds.filter(job => ['success', 'failed'].includes(job?.status) && seconds(job.duration))
+      .slice(0, 4).map(job => safe(job.name || 'unknown').slice(0, 24) + '=' + seconds(job.duration));
+    const details = [duration ? 'duration ' + duration : '', jobs.length ? jobs.join(', ') : '',
+      failed.length ? 'failed jobs: ' + failed.join(', ') : ''].filter(Boolean).join('; ');
+    return { project, title: ('Pipeline' + id + ' ' + status + ' on ' + ref + sha +
+      (details ? '; ' + details : '')).slice(0, 240) };
+  }
   if (kind === 'merge_request') return { project, title: `MR !${body.object_attributes?.iid} ${body.object_attributes?.action}: ${body.object_attributes?.title}` };
   if (kind === 'note') return { project, title: `Comment by ${body.user?.username}` };
   if (kind === 'issue') return { project, title: `Issue #${body.object_attributes?.iid} ${body.object_attributes?.action}: ${body.object_attributes?.title}` };

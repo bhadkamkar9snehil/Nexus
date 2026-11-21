@@ -19,6 +19,8 @@ Always obtain the current catalog from shared_jev or Harness.ps1 tools; this ref
 | restart_status | id | inspect the persisted restart outcome after reconnecting |
 | network_probe | none | host, ports, url, subnet, system, ping, trace, tls_port, timeout_ms; explicit scope for active probes |
 | map_files | none | action, roots, out_dir, limit_units, open |
+| web_scrape | url | format, max_chars, browser_session, browser |
+| browser_read_page | session | browser, format, max_chars, offset_chars, expected_sha256; use next_offset_chars and hash guard for pagination |
 | jev_browse | goal, url, expect_text | browser, backend, session, fields, max_steps |
 | jev_desktop | goal, app, expect | launch_aumid, window_id, text, max_steps |
 | jev_select_workflow | request | context |

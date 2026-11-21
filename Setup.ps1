@@ -2,15 +2,9 @@ param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn)
 $ErrorActionPreference = 'Stop'
 # A silent install shows nothing, so keep what setup reported: a failure can then be diagnosed afterwards.
 try { Start-Transcript -Path (Join-Path $env:LOCALAPPDATA 'Nexus\setup.log') -Force | Out-Null } catch { }
-$existingTask = Get-ScheduledTask -TaskName 'SharedHarness-Monitor' -ErrorAction SilentlyContinue
-$monitorScript = Join-Path $PSScriptRoot 'Monitor.ps1'
-if ($existingTask -and $existingTask.Actions.Arguments -notlike ('*-File "' + $monitorScript + '" *')) {
-    throw 'Another Nexus installation owns the monitor task. Its services and registrations were preserved; choose that installation or migrate it deliberately.'
-}
-try { $existingMonitor = Invoke-RestMethod 'http://127.0.0.1:8769/monitor-status' -TimeoutSec 2 } catch { $existingMonitor = $null }
-if ($existingMonitor -and ($existingMonitor.application -ne 'shared-computer-use-monitor' -or $existingMonitor.root -ne $PSScriptRoot)) {
-    throw 'Another installation owns the Nexus monitor port. Its services and registrations were preserved.'
-}
+# Inno preflight already transfers a verified prior Nexus monitor task.
+# Repeat the takeover during manual repair/setup, but never stop unrelated processes.
+& (Join-Path $PSScriptRoot 'Nexus-Takeover.ps1') -TargetDir $PSScriptRoot
 $runtime = Join-Path $PSScriptRoot 'runtime'
 $manifest = Get-Content -LiteralPath (Join-Path $runtime 'SHA256.json') -Raw | ConvertFrom-Json
 foreach ($entry in $manifest) {

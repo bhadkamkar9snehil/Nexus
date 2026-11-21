@@ -39,7 +39,7 @@ Browser tasks that generate text or return written answers also need a text mode
 3. At the end, leave **Open Nexus Harness** ticked. Open **Settings**, paste your TypeSafe API key and select **Save API key**, then **Set up or repair** if anything is missing.
 4. Restart or reconnect Codex and Claude, then follow [Verify the installation](#verify-the-installation).
 
-If another Nexus installation already owns the monitor, the installer stops and changes nothing. Silent install: `Nexus-Harness-Setup-X.Y.Z-windows-x64.exe /VERYSILENT /DIR="C:\Nexus"`. Uninstall from Windows **Installed apps**.
+When a same-user Nexus installation owns the monitor, the installer automatically stops its known Nexus desktop, monitor, and MCP processes, transfers the scheduled monitor task, and continues. It keeps prior folders, credentials, and data. Unrecognized port owners and tasks belonging to another user are never killed; setup stops with a clear error. Silent install: `Nexus-Harness-Setup-X.Y.Z-windows-x64.exe /VERYSILENT /DIR="C:\Nexus"`. Uninstall from Windows **Installed apps**.
 
 ## Settings
 
@@ -151,6 +151,8 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `restart_status` | Read the persisted state of a requested restart after reconnecting. |
 | `map_files` | Build file maps, review pages and dry-run organization proposals; it does not move files. |
 | `jev_browse` | Run a bounded Chrome or Edge task with an explicit goal and expected text. |
+| `browser_read_page` | Read bounded Markdown, text, sanitized HTML, links, or metadata from an existing named Playwright session without interaction. Use hash-guarded page offsets for long content. |
+| `web_scrape` | Read public HTTP(S) pages without browser startup; block unsafe destinations and report when browser rendering is needed. |
 | `jev_desktop` | Run a bounded accessibility-based Windows task against an identified app and expected state. |
 | `jev_select_workflow` | Recommend a workflow for a supplied request. |
 | `jev_rank_results` | Rank caller-supplied candidates. |
@@ -202,6 +204,10 @@ The monitor shows recorded runs, timings, token and estimated-cost information, 
 
 **Inbox** is the messaging page: a searchable list of paired computers with unread counts and previews, and a thread that fills the window, scrolls inside itself and keeps the composer in place. Forwarded GitLab events show as one line, never as raw JSON. **Devices** manages the computers: this computer's network state and responder defaults, and one table of paired computers with enable, mail, chat, auto-reply and autonomy controls. Pair a computer opens the code form in place. Your own computers pair automatically over Tailscale. Teammates pair with a one-time code. **Agents & tools** lists the registered agents and the capability catalog; Terminal sessions stay closed, and are not fetched, until you open them. See [USAGE.md](USAGE.md) for responder settings and delivery behavior.
 
+GitLab pipeline event summaries include a bounded pipeline ID, short commit SHA, duration, individual completed-job durations, and failed job names when GitLab supplies them. The full job trace remains in GitLab; the monitor does not store raw CI logs.
+
+Feature-branch pushes use the B19CL3PC runner for `validate-branch`. Newer pushes automatically cancel obsolete branch validation and preview jobs. `CI-Validate.ps1` measures npm restore, package checks, an actual read-only MCP tool call, and headless tests. It uploads `ci-evidence/validation.json` and a JUnit test report, including on failure. A commit labeled `[preview-build]` also requests `CI-Preview.ps1`, which builds a temporary ZIP and installer and checks their sizes and SHA-256 hashes. Its `ci-evidence/preview.json` report and verified packages remain temporary GitLab artifacts. These jobs reuse pinned CI tools and never change installed Nexus versions. `release` on `main` is non-interruptible and remains the only job that publishes GitLab releases and updates the GitHub mirror. A branch preview is not a release or an update signal.
+
 | ![Inbox](docs/screenshots/inbox-light.png) | ![Devices](docs/screenshots/devices-light.png) |
 |---|---|
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
@@ -222,7 +228,7 @@ The screenshots show a particular local run; counts and health differ on each ma
 .\Monitor.ps1 Stop
 ```
 
-Removing the startup task is a separate operation. `InstallStartup` checks task ownership and will not take over another installation. A responding monitor is not proof that a browser, search, desktop action or paid Jev request works. Its read-only server binds to loopback; the separate `map_files` review server has different behavior and port.
+Manual removal of the startup task is a separate operation. `Monitor.ps1 InstallStartup` still checks task ownership; only the installer or `Setup.ps1` invokes the verified Nexus takeover helper automatically. A responding monitor is not proof that a browser, search, desktop action or paid Jev request works. Its read-only server binds to loopback; the separate `map_files` review server has different behavior and port.
 
 ## Keys, privacy and cost
 
