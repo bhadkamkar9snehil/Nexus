@@ -35,3 +35,4 @@ This is one Windows-native automation package shared by Codex and Claude. Read [
 - Keep GitHub `bhadkamkar9snehil/Nexus` synchronized with validated GitLab source and relative README screenshots. Build and publish locally to both hosts.
 - Build/release from the merged source; verify extraction using bundled Node and confirm registry SHA256. Existing deployed paths and per-user data require deliberate migration, not broad overwrite. Record limitations and rollback instructions.
 - Durable findings go to the agents' GBrain with evidence; never touch Chitragupta's product gbrain. Retire superseded current guidance while retaining labeled historical evidence.
+- Keep the GitLab wiki current with verified installation, peer and webhook status, the local release workflow, and links to open issues.

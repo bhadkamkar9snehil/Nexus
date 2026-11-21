@@ -96,10 +96,10 @@ export function startPeerDiscovery(root, { intervalMs = 30_000, log = () => {} }
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
 
 /** Creates a single-use code valid for ten minutes. It carries this computer's name and addresses, so entering it is enough. */
-export async function createPairingCode(root, run = runTailscale) {
+export async function createPairingCode(root, run = runTailscale, autoReply) {
   const secret = randomBytes(9).toString('base64url');
   const codes = (await readCodes(root)).filter(c => c.expires > Date.now());
-  codes.push({ secret, expires: Date.now() + CODE_TTL_MS });
+  codes.push({ secret, expires: Date.now() + CODE_TTL_MS, autoReply });
   await mkdir(folder(root), { recursive: true });
   await writeFile(codesFile(root), JSON.stringify(codes));
   return { code: 'nexus-' + b64({ n: await selfName(root), a: await localAddresses(run), s: secret }), expiresInMinutes: CODE_TTL_MS / 60000 };
@@ -114,12 +114,12 @@ export async function handlePair(root, remoteIp, body) {
   if (!hit) return { status: 403, json: { error: 'Invalid or expired code' } };
   if (typeof body.token !== 'string' || body.token.length < 16 || !/^[\w.-]{1,40}$/.test(body?.name ?? '')) return { status: 400, json: { error: 'name and token required' } };
   await writeFile(codesFile(root), JSON.stringify(codes.filter(c => c !== hit))); // single use
-  const mine = await addPeer(root, { name: body.name, url: `http://${remoteIp}:${PEER_PORT}`, outbound: body.token });
+  const mine = await addPeer(root, { name: body.name, url: `http://${remoteIp}:${PEER_PORT}`, outbound: body.token, autoReply: hit.autoReply });
   return { status: 200, json: { name: await selfName(root), token: mine.inbound } };
 }
 
 /** Enters a code shown on the other computer: tries each address it listed until one answers. */
-export async function pairWithCode(root, code, { fetcher = fetch } = {}) {
+export async function pairWithCode(root, code, { fetcher = fetch, autoReply } = {}) {
   let info;
   try { info = JSON.parse(Buffer.from(String(code).trim().replace(/^nexus-/, ''), 'base64url').toString('utf8')); } catch { throw new Error('That is not a Nexus pairing code'); }
   if (!/^[\w.-]{1,40}$/.test(info?.n ?? '') || !Array.isArray(info.a) || typeof info.s !== 'string') throw new Error('That is not a Nexus pairing code');
@@ -131,7 +131,7 @@ export async function pairWithCode(root, code, { fetcher = fetch } = {}) {
       if (reply.status === 403) { lastError = 'The code was refused (expired or already used)'; break; }
       if (!reply.ok) { lastError = 'HTTP ' + reply.status; continue; }
       const answer = await reply.json();
-      await addPeer(root, { name: info.n, url, outbound: answer.token });
+      await addPeer(root, { name: info.n, url, outbound: answer.token, autoReply });
       return { name: info.n, url };
     } catch (error) { lastError = `${url}: ${error.message}`; }
   }

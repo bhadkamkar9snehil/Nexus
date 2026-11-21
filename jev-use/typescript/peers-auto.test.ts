@@ -76,7 +76,7 @@ test('hello is refused for devices of another account, without Tailscale, and fo
 test('a pairing code pairs two computers once and carries the addresses', async () => {
   const teammate = await install('dhaval-pc'), mine = await install('laptop');
   const run = (async () => null) as never; // no Tailscale: LAN addresses only
-  const { code } = await createPairingCode(mine, run);
+  const { code } = await createPairingCode(mine, run, false);
   assert.match(code, /^nexus-[\w-]+$/);
   const decoded = JSON.parse(Buffer.from(code.slice(6), 'base64url').toString());
   assert.equal(decoded.n, 'laptop');
@@ -86,7 +86,9 @@ test('a pairing code pairs two computers once and carries the addresses', async 
     const reply = await handlePair(mine, '10.2.6.50', JSON.parse(init.body));
     return { ok: reply.status === 200, status: reply.status, json: async () => reply.json };
   }) as never;
-  const pairedWith = await pairWithCode(teammate, code, { fetcher });
+  const pairedWith = await pairWithCode(teammate, code, { fetcher, autoReply: true });
+  assert.equal((await listPeers(mine))[0].responder?.enabled, false);
+  assert.equal((await listPeers(teammate))[0].responder?.enabled, true);
   assert.equal(pairedWith.name, 'laptop');
   assert.deepEqual((await listPeers(mine)).map(p => [p.name, p.paired, p.own]), [['dhaval-pc', true, false]], 'a code-paired device is not an own device');
   assert.deepEqual((await listPeers(teammate)).map(p => [p.name, p.paired]), [['laptop', true]]);

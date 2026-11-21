@@ -41,6 +41,7 @@ export function PeersView() {
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState<{ code: string; expiresInMinutes: number } | null>(null);
   const [entered, setEntered] = useState('');
+  const [pairAutoReply, setPairAutoReply] = useState(false);
   const [copied, setCopied] = useState(false);
   const history = useRef<HTMLDivElement>(null);
   const last = useRef('');
@@ -222,9 +223,10 @@ export function PeersView() {
       </div>
     </Panel>
     <Panel icon={KeyRound} title="Pair another computer">
+      <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={pairAutoReply} onChange={e => setPairAutoReply(e.target.checked)} />Enable auto-reply for this device</label>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => run(async () => { setCode(await api('/api/peers/code', {})); setCopied(false); })}>Generate code</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => run(async () => { setCode(await api('/api/peers/code', { autoReply: pairAutoReply })); setCopied(false); setPairAutoReply(false); })}>Generate code</Button>
           {code && <div className="flex items-center gap-2">
             <code className="min-w-0 break-all rounded bg-surface-2 px-2 py-1 text-xs" aria-label="Pairing code">{code.code}</code>
             <Button size="icon-sm" variant="ghost" aria-label={copied ? 'Code copied' : 'Copy code'}
@@ -235,8 +237,9 @@ export function PeersView() {
         <form className="flex items-start gap-2" onSubmit={e => {
           e.preventDefault();
           void run(async () => {
-            const result = await api('/api/peers/pair', { code: entered });
+            const result = await api('/api/peers/pair', { code: entered, autoReply: pairAutoReply });
             setEntered('');
+            setPairAutoReply(false);
             open(result.name);
           }, 'Device paired');
         }}>

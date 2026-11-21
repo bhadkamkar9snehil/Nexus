@@ -28,12 +28,17 @@ if (-not ($browsers | Where-Object { Test-Path -LiteralPath $_ })) {
     if ($LASTEXITCODE -ne 0) { throw 'Browser installation failed.' }
 }
 & (Join-Path $PSScriptRoot 'Install.ps1') -InstallSearch -RegisterAgents -UseBundledDependencies
-& (Join-Path $runtime 'cua-driver.exe') autostart status
+$cuaStatus = & (Join-Path $runtime 'cua-driver.exe') autostart status
 if ($LASTEXITCODE -ne 0) { throw 'Cua Driver status check failed.' }
-& (Join-Path $runtime 'cua-driver.exe') autostart enable
-if ($LASTEXITCODE -ne 0) { throw 'Cua sign-in task setup failed.' }
-& (Join-Path $runtime 'cua-driver.exe') autostart kick
-if ($LASTEXITCODE -ne 0) { throw 'Cua startup failed.' }
+$cuaStatus | Write-Host
+if (-not ($cuaStatus -match '^registered \(')) {
+    & (Join-Path $runtime 'cua-driver.exe') autostart enable
+    if ($LASTEXITCODE -ne 0) { throw 'Cua sign-in task setup failed.' }
+}
+if (-not ($cuaStatus -match '^registered \(running\)')) {
+    & (Join-Path $runtime 'cua-driver.exe') autostart kick
+    if ($LASTEXITCODE -ne 0) { throw 'Cua startup failed.' }
+}
 if ($EnrollKey) { & (Join-Path $PSScriptRoot 'Set-ComputerUseKey.ps1') }
 & (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup -NoBrowserAtSignIn:$NoBrowserAtSignIn
 & (Join-Path $PSScriptRoot 'Install-Skills.ps1')

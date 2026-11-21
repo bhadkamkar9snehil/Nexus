@@ -9,12 +9,13 @@ try {
     if ($task -and $task.Actions.Arguments -notlike ('*-File "' + $monitor + '" *')) {
         throw 'Another Nexus installation owns the monitor. It was not changed. Use that installation or migrate it deliberately before installing another.'
     }
-    if ($task -and $task.State -eq 'Running') {
-        throw 'Nexus is running from this folder. Close Nexus and stop its monitor before upgrading.'
-    }
     try { $server = Invoke-RestMethod 'http://127.0.0.1:8769/monitor-status' -TimeoutSec 2 } catch { $server = $null }
     if ($server -and ($server.application -ne 'shared-computer-use-monitor' -or $server.root -ne $target)) {
         throw 'Another Nexus installation owns the monitor port. It was not changed.'
+    }
+    if ($task.State -eq 'Running' -or $server) {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $monitor Stop
+        if ($LASTEXITCODE -ne 0) { throw 'Nexus could not stop the monitor for this upgrade.' }
     }
     exit 0
 } catch {

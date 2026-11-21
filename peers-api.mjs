@@ -31,8 +31,8 @@ export async function handleApi(root, method, url, body, { run = runTailscale } 
     if (method === 'GET' && path === '/api/responder') return { status: 200, json: responderState(await loadResponderConfig(root)) };
     if (method !== 'POST') return fail(404, 'Not found');
 
-    if (path === '/api/peers/code') return { status: 200, json: await createPairingCode(root, run) };
-    if (path === '/api/peers/pair') return { status: 200, json: await pairWithCode(root, String(body.code ?? '')) };
+    if (path === '/api/peers/code') return { status: 200, json: await createPairingCode(root, run, body.autoReply) };
+    if (path === '/api/peers/pair') return { status: 200, json: await pairWithCode(root, String(body.code ?? ''), { autoReply: body.autoReply }) };
     if (path === '/api/peers/refresh') return { status: 200, json: { paired: await discoverAndPair(root, { run }) } };
     if (path === '/api/peers/set') return { status: 200, json: await setPeer(root, String(body.name), { enabled: body.enabled, allow: body.allow }) };
     if (path === '/api/peers/remove') { await removePeer(root, String(body.name)); return { status: 200, json: {} }; }

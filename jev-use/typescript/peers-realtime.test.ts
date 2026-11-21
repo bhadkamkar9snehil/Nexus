@@ -1,4 +1,5 @@
 import { test, after } from 'node:test';
+import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { addPeer, sendMessage, setPeer } from '../../peers.mjs';
 
 process.env.NEXUS_NOTIFY = '0';
-process.env.NEXUS_WEBHOOK_PORT = '18771';
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // Two installations on one machine: laptop A sends, laptop B receives over real HTTP and its agent waits on the mailbox.
@@ -16,10 +16,12 @@ const rootA = await mkdtemp(join(tmpdir(), 'nexus-laptop-a-'));
 const rootB = await mkdtemp(join(tmpdir(), 'nexus-laptop-b-'));
 await mkdir(join(rootB, 'secrets'), { recursive: true });
 const { startWebhook } = await import('../../webhook.mjs');
-const receiver = await startWebhook(rootB);
-await sleep(300);
+const receiver = await startWebhook(rootB, { host: '127.0.0.1', port: 0 });
+await once(receiver, 'listening');
 after(() => { receiver.close(); });
-const url = 'http://127.0.0.1:18771';
+const address = receiver.address();
+assert.ok(address && typeof address !== 'string');
+const url = `http://127.0.0.1:${address.port}`;
 
 const client = new Client({ name: 'laptop-b-agent', version: '1.0.0' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
 await client.connect(new StdioClientTransport({

@@ -6,6 +6,6 @@ export function localAddresses(run?: Run): Promise<string[]>;
 export function handleHello(root: string, remoteIp: string, body: unknown, run?: Run): Promise<{ status: number; json: Record<string, unknown> }>;
 export function discoverAndPair(root: string, options?: { run?: Run; fetcher?: typeof fetch; log?: (message: string) => void }): Promise<string[]>;
 export function startPeerDiscovery(root: string, options?: { intervalMs?: number; log?: (message: string) => void }): () => void;
-export function createPairingCode(root: string, run?: Run): Promise<{ code: string; expiresInMinutes: number }>;
+export function createPairingCode(root: string, run?: Run, autoReply?: boolean): Promise<{ code: string; expiresInMinutes: number }>;
 export function handlePair(root: string, remoteIp: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }>;
-export function pairWithCode(root: string, code: string, options?: { fetcher?: typeof fetch }): Promise<{ name: string; url: string }>;
+export function pairWithCode(root: string, code: string, options?: { fetcher?: typeof fetch; autoReply?: boolean }): Promise<{ name: string; url: string }>;

@@ -28,7 +28,7 @@ export async function listPeers(root) { return (await load(root)).peers.map(clea
 export async function getPeer(root, name) { const p = (await load(root)).peers.find(x => x.name === name); return p ? clean(p) : null; }
 
 /** Adds or updates a peer. `outbound` is the token the peer gave us; the returned `inbound` is what to give the peer. */
-export async function addPeer(root, { name, url, outbound, allow, own }) {
+export async function addPeer(root, { name, url, outbound, allow, own, autoReply }) {
   if (!/^[\w.-]{1,40}$/.test(name ?? '')) throw new Error('Peer name must be 1-40 letters, digits, dot, dash or underscore');
   if (!/^https?:\/\/[^\s/]+/.test(url ?? '')) throw new Error('Peer url must be http(s)://host:port');
   // Pairing takes two steps: each side adds the other (getting the token to hand over), then each sets the token it received.
@@ -39,6 +39,7 @@ export async function addPeer(root, { name, url, outbound, allow, own }) {
   Object.assign(peer, { url: url.replace(/\/+$/, ''), ...(outbound === undefined ? {} : { outbound }) });
   if (allow) peer.allow = { mail: allow.mail !== false, chat: allow.chat !== false };
   if (own !== undefined) peer.own = own; // a device of the same Tailscale account (the owner's own computer)
+  if (typeof autoReply === 'boolean') peer.responder = { ...peer.responder, enabled: autoReply };
   await save(root, config);
   return { ...clean(peer), inbound: peer.inbound };
 }

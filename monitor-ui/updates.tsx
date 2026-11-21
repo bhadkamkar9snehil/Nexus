@@ -15,13 +15,15 @@ const changes=(notes:string)=>notes.split(/^##\s+Checksums/m)[0].replace(/^##\s+
 export function UpdatesView(){
  const [current,Current]=useState<string|null>(null),[rels,Rels]=useState<Rel[]>([]),[note,Note]=useState(''),[busy,Busy]=useState(''),[token,Token]=useState(''),[tokenSaved,TokenSaved]=useState(false),[open,Open]=useState('');
  const [events,Events]=useState<Ev[]>([]),[hook,Hook]=useState<{url:string;secret:string}|null>(null),[loaded,Loaded]=useState(false);
- const load=useCallback(async()=>{Busy('check');const r=await call({type:'updates.list'});Busy('');Loaded(true);if(r.ok){Current(r.current??null);Rels(r.releases);TokenSaved(r.tokenSaved);Note('');}else Note(r.message??'');},[]);
+ const [autoUpdate,AutoUpdate]=useState(false),[autoUpdateAvailable,AutoUpdateAvailable]=useState(false);
+ const load=useCallback(async()=>{Busy('check');const r=await call({type:'updates.list'});Busy('');Loaded(true);Current(r.current??null);TokenSaved(r.tokenSaved===true);AutoUpdate(r.autoUpdate===true);AutoUpdateAvailable(r.autoUpdateAvailable===true);if(r.ok){Rels(r.releases);Note('');}else Note(r.message??'');},[]);
  useEffect(()=>{if(host())load();else Loaded(true);},[load]);
  useEffect(()=>{if(!host())return;const h=host()!;const on=(e:{data:any})=>{if(e.data?.type==='updateAvailable')load();};h.addEventListener('message',on);return()=>h.removeEventListener('message',on);},[load]);
  useEffect(()=>{let stop=false;const t=async()=>{try{const r=await fetch('/webhook-events');if(r.ok&&!stop)Events((await r.json()).events);}catch{}};t();const i=setInterval(t,10000);return()=>{stop=true;clearInterval(i);};},[]);
  const install=async(r:Rel)=>{const verb=r.newer?'Update to':'Roll back to';if(!confirm(`${verb} ${r.tag}? Nexus will close and reopen. Keys and tool assignments are backed up first.`))return;Busy(r.tag);const x=await call({type:'updates.install',tag:r.tag});Busy('');Note(x.message??'');};
  const saveToken=async()=>{Busy('token');const x=await call({type:'updates.saveToken',token});Busy('');if(x.ok){Token('');await load();}Note(x.message??'');};
  const showHook=async()=>{const x=await call({type:'updates.webhook'});if(x.ok)Hook({url:x.url,secret:x.secret});else Note(x.message??'');};
+ const setAutoUpdate=async(enabled:boolean)=>{Busy('autoUpdate');const result=await call({type:'updates.autoUpdate',enabled});Busy('');if(result.ok)AutoUpdate(result.autoUpdate);else Note(result.message??'');};
  const latest=rels.find(r=>r.installable);
  if(!host())return <Panel icon={History} title="Updates" meta="Desktop app only"><p className="text-sm text-muted-foreground">Open the Nexus desktop app to see versions, update and roll back.</p></Panel>;
  return <>
@@ -29,6 +31,7 @@ export function UpdatesView(){
    <p className="min-w-0 flex-1 text-sm">{!loaded||busy==='check'?'Checking GitLab…':latest&&latest.newer?<>Version <b>{latest.tag.replace(/^v/,'')}</b> is available.</>:latest?'You have the latest version.':'No releases found.'}</p>
    {latest?.newer&&<Button size="sm" disabled={!!busy} onClick={()=>install(latest)}><ArrowDownToLine/>Update now</Button>}
    <Button size="sm" variant="outline" disabled={!!busy} onClick={load}><RefreshCw/>Check now</Button></div>
+   {autoUpdateAvailable&&<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" role="switch" checked={autoUpdate} disabled={!!busy} onChange={e=>void setAutoUpdate(e.target.checked)}/>Install updates automatically</label>}
    {latest?.newer&&<ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{changes(latest.notes).map((c,i)=><li key={i}>{c}</li>)}</ul>}
    {note&&<p role="status" className="mt-3 text-xs text-muted-foreground">{note}</p>}</Panel>
   <Panel icon={History} title="Versions" meta="Install any release, including older ones, to roll back" pad="none"><div className="divide-y">

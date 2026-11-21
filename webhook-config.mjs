@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const eventKinds = ['release', 'pipeline', 'merge_request', 'push', 'tag_push', 'note', 'issue'];
-const defaults = { events: eventKinds, projects: [], notify: ['release', 'pipeline', 'merge_request'], forward: [] };
+const defaults = { events: eventKinds, projects: [], notify: ['release', 'pipeline', 'merge_request'], forward: [], forwardEvents: eventKinds };
 const file = (root) => join(root, 'secrets', 'webhooks.json');
 
 export async function loadWebhookConfig(root) {
@@ -23,6 +23,7 @@ export async function configureWebhooks(root, change) {
   if (change.projects !== undefined) next.projects = list(change.projects, 'projects');
   if (change.notify !== undefined) next.notify = list(change.notify, 'notify', eventKinds);
   if (change.forward !== undefined) next.forward = list(change.forward, 'forward');
+  if (change.forwardEvents !== undefined) next.forwardEvents = list(change.forwardEvents, 'forwardEvents', eventKinds);
   await mkdir(join(root, 'secrets'), { recursive: true });
   await writeFile(file(root), JSON.stringify(next, null, 2));
   return next;

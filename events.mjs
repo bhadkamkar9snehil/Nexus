@@ -28,8 +28,9 @@ export function emit(root, event) {
 }
 let queue = Promise.resolve();
 
-async function append(root, { name, eventId, data }) {
+async function append(root, { name, eventId, data, deduplicate = false }) {
   const all = await rows(root);
+  if (deduplicate && eventId && all.some(row => row.name === name && row.eventId === eventId)) return null;
   const row = { seq: (all.at(-1)?.seq ?? 0) + 1, eventId: eventId || randomBytes(8).toString('hex'), name, timestamp: new Date().toISOString(), data };
   await mkdir(join(file(root), '..'), { recursive: true });
   if (all.length >= ROTATE_AT) {

@@ -43,8 +43,16 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\Nexus.Desktop.exe"; Description: "Open Nexus Harness"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Nexus.Desktop.exe"; Flags: nowait skipifnotsilent; Check: SetupCompleted
 
 [Code]
+var Provisioned: Boolean;
+
+function SetupCompleted: Boolean;
+begin
+  Result := Provisioned;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ResultCode: Integer; ResultFile, Params: String; Detail: AnsiString;
 begin
@@ -65,9 +73,10 @@ var ResultCode: Integer; Params: String;
 begin
   if CurStep = ssPostInstall then begin
     Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Setup.ps1') + '" -NoBrowserAtSignIn';
-    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       MsgBox('Nexus was copied, but setup could not start. Open Nexus Settings and select Set up or repair.', mbError, MB_OK)
     else if ResultCode <> 0 then
-      MsgBox('Nexus was copied, but setup did not finish. Open Nexus Settings and select Set up or repair. Existing installations were preserved.', mbError, MB_OK);
+      MsgBox('Nexus was copied, but setup did not finish. Open Nexus Settings and select Set up or repair. Existing installations were preserved.', mbError, MB_OK)
+    else Provisioned := True;
   end;
 end;

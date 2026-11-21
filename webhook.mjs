@@ -80,18 +80,20 @@ export async function startWebhook(root, options = {}) {
         const event = { id: randomBytes(4).toString('hex'), at: Date.now(), kind, ...summarize(kind, body) };
         const config = await loadWebhookConfig(root);
         if (!accepts(config, kind, event.project)) return done(202);
+        const recorded = await emit(root, { name: 'gitlab.event', eventId: String(req.headers['x-gitlab-event-uuid'] || event.id), data: { kind, project: event.project, title: event.title }, deduplicate: true });
+        if (!recorded) return done(200);
         events.unshift(event);
-        // GitLab's own delivery UUID is the stable eventId, so a redelivery deduplicates on the client.
-        emit(root, { name: 'gitlab.event', eventId: String(req.headers['x-gitlab-event-uuid'] || event.id), data: { kind, project: event.project, title: event.title } }).catch(() => {});
         if (config.notify.includes(kind)) notify(event.project || 'GitLab', event.title);
         // Forward a copy to the chosen peers; a peer that is off or offline must not fail GitLab's delivery.
-        for (const to of config.forward) sendMessage(root, { to, kind: 'mail', subject: `GitLab: ${event.title}`.slice(0, 200), body: JSON.stringify(event) }).catch(() => {});
+        if (config.forwardEvents.includes(kind)) {
+          for (const to of config.forward) sendMessage(root, { to, kind: 'mail', subject: `GitLab: ${event.title}`.slice(0, 200), body: JSON.stringify(event) }).catch(() => {});
+        }
         events.length = Math.min(events.length, 50);
         done(200);
       } catch { done(400); }
     });
   });
   server.on('error', (e) => console.error('Webhook receiver unavailable: ' + e.message));
-  server.listen(webhookPort, '0.0.0.0', () => console.log('GitLab webhook receiver on port ' + webhookPort));
+  server.listen(options.port ?? webhookPort, options.host ?? '0.0.0.0', () => console.log('GitLab webhook receiver on port ' + server.address().port));
   return server;
 }

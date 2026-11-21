@@ -1,13 +1,16 @@
 param([string]$Version = 'dev', [string]$SourceRef = 'HEAD', [switch]$Installer)
 $ErrorActionPreference = 'Stop'
+$phase = [Diagnostics.Stopwatch]::StartNew()
 if ($Version -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid version label.' }
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $stageRoot = Join-Path $env:TEMP ('harness-bundle-' + [guid]::NewGuid())
 $stage = Join-Path $stageRoot 'shared-computer-use'
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 $archive = Join-Path $stageRoot 'source.zip'
 & git -C $PSScriptRoot archive --format=zip --output=$archive $SourceRef
 if ($LASTEXITCODE -ne 0) { throw 'Source archive failed.' }
-Expand-Archive -LiteralPath $archive -DestinationPath $stage
+[IO.Compression.ZipFile]::ExtractToDirectory($archive, $stage)
 $runtime = Join-Path $stage 'runtime'
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 Push-Location (Join-Path $stage 'jev-use')
@@ -16,8 +19,12 @@ try {
     & npm.cmd ci --ignore-scripts --prefer-offline --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed.' }
 } finally { Pop-Location }
+Write-Host ('Source staging and dependency restore: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
+$phase.Restart()
 & node (Join-Path $stage 'monitor-ui\build.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Monitor build failed.' }
+Write-Host ('Monitor assets: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
+$phase.Restart()
 # The Windows CI baseline is also the redistributable Node runtime.
 $nodeVersion = 'v22.22.0'
 $nodeAsset = "node-$nodeVersion-win-x64.zip"
@@ -33,10 +40,12 @@ if (-not (Test-Path -LiteralPath $nodeZip) -or -not (Test-Path -LiteralPath $exp
 }
 $expected = (Get-Content -LiteralPath $expectedFile -Raw).Trim()
 if (-not $expected -or (Get-FileHash -LiteralPath $nodeZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { Remove-Item -LiteralPath $nodeZip, $expectedFile -Force; throw 'Node checksum mismatch.' }
-Expand-Archive -LiteralPath $nodeZip -DestinationPath $stageRoot
-$nodeFolder = Join-Path $stageRoot "node-$nodeVersion-win-x64"
-[IO.File]::Copy((Join-Path $nodeFolder 'node.exe'), (Join-Path $runtime 'node.exe'))
-[IO.File]::Copy((Join-Path $nodeFolder 'LICENSE'), (Join-Path $runtime 'NODE-LICENSE'))
+$nodeArchive = [IO.Compression.ZipFile]::OpenRead($nodeZip)
+try {
+    $entryRoot = "node-$nodeVersion-win-x64"
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($nodeArchive.GetEntry("$entryRoot/node.exe"), (Join-Path $runtime 'node.exe'))
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($nodeArchive.GetEntry("$entryRoot/LICENSE"), (Join-Path $runtime 'NODE-LICENSE'))
+} finally { $nodeArchive.Dispose() }
 Invoke-WebRequest 'https://raw.githubusercontent.com/skyllc-ai/UltraFastFileSearch/v0.6.47/LICENSES/MPL-2.0.txt' -UseBasicParsing -OutFile (Join-Path $runtime 'UFFS-MPL-2.0.txt')
 Invoke-WebRequest 'https://raw.githubusercontent.com/BurntSushi/ripgrep/15.1.0/LICENSE-MIT' -UseBasicParsing -OutFile (Join-Path $runtime 'RIPGREP-LICENSE-MIT')
 $driver = (Get-Command cua-driver -ErrorAction Stop).Source
@@ -57,12 +66,12 @@ $manifest = Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'SHA256.json') -Encoding UTF8
 $env:PATH = $runtime + ';' + $env:PATH
 & (Join-Path $stage 'Test-Package.ps1')
+Write-Host ('Runtime staging and validation: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
+$phase.Restart()
 $outputDir = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 $output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"
 if (Test-Path -LiteralPath $output) { throw 'Output archive exists; choose a fresh version label.' }
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
 if ($sevenZip) {
     Push-Location $stageRoot
@@ -75,11 +84,16 @@ if ($sevenZip) {
 }
 Get-Item -LiteralPath $output | Select-Object FullName,Length
 Get-FileHash -LiteralPath $output -Algorithm SHA256
+Write-Host ('Deployment ZIP: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
 if ($Installer) {
     $iscc = Join-Path $PSScriptRoot 'dist\inno-compiler\ISCC.exe'
     if (-not (Test-Path -LiteralPath $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
+    $phase.Restart()
     & (Join-Path $stage 'Publish-Desktop.ps1') -PayloadDir $stage
-    & $iscc "/DPayloadDir=$stage" "/DOutputDir=$outputDir" "/DVersion=$Version" (Join-Path $stage 'installer\Nexus.iss')
+    Write-Host ('Desktop publish: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
+    $phase.Restart()
+    & $iscc /Q "/DPayloadDir=$stage" "/DOutputDir=$outputDir" "/DVersion=$Version" (Join-Path $stage 'installer\Nexus.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
     Get-FileHash -LiteralPath (Join-Path $outputDir "Nexus-Harness-Setup-$Version-windows-x64.exe") -Algorithm SHA256
+    Write-Host ('Installer compile: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
 }
