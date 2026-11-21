@@ -1,5 +1,13 @@
 # Validation and acceptance
 
+## v1.18.2 installed-layout package hotfix — 2026-11-21
+
+The published v1.18.1 installer returned nonzero on a live v1.18.0 upgrade. It copied files, but setup failed in `Test-Package.ps1`: the check tried to parse `installer/Preflight.ps1`, although the install payload intentionally excludes the `installer` source directory. The v1.18.1 registry version was present while the monitor task and HTTP endpoint were absent. The revised check skips this one source-only script when it is not shipped, but continues to parse it in development/CI when it exists. The GitLab release job now also triggers for changes to `Test-Package.ps1`.
+
+**Actual installed-layout acceptance:** A temporary copy of the corrected package checker was executed inside the installed Nexus v1.18.1 directory, without an `installer` subdirectory: TypeScript, monitor syntax and MCP catalog all passed. The actual installed `Setup.ps1 -NoBrowserAtSignIn` was then run with that corrected checker. It returned code 0 in 69.97 seconds, recreated `SharedHarness-Monitor`, and verified an HTTP-responding managed monitor at the installed root. Optional agent/skill duplicate-registration warnings did not abort setup. The temporary checker was removed and the original restored. This tests the exact previously failing setup path, not just a source worktree.
+
+The v1.18.2 installer still requires publication and a new clean in-place upgrade receipt; user-specific Windows policy and unrelated process ownership cannot always be repaired automatically.
+
 ## Installer failure-path patch acceptance — 2026-11-21
 
 The urgent patch includes the existing v1.18.0 takeover helper and fixes three observed updater failures: private GitLab access dependency, false installer success, and first-host curl failure aborting fallback. It also retries the monitor takeover once, preserves the detailed error, and gives interactive recovery steps. Inno Setup's `GetCustomSetupExitCode` now reports a nonzero status when post-copy setup fails. The **actual Inno Setup compiler** successfully built a minimal v1.18.1 fixture using these installer scripts. A separate Windows fixture proved both actionable preflight failure and successful continuation, without terminating live processes. `Test-Package.ps1` parses the updater and preflight scripts on every CI validation. A complete real-machine upgrade is still required; none of these checks proves that all environmental failures can be repaired without user action.

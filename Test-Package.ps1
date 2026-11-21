@@ -15,6 +15,8 @@ try {
     & node --check (Join-Path $PSScriptRoot 'runtime-status.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime observation syntax check failed.' }
     foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1','Nexus-Takeover.ps1','Update-Nexus.ps1','installer\Preflight.ps1','jev-use\restart-supervisor.ps1') {
+        # installer/Preflight.ps1 is bundled into Inno Setup, not copied into {app}.
+        if ($script -eq 'installer\Preflight.ps1' -and -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $script) -PathType Leaf)) { continue }
         $parseErrors=$null
         $tokens=$null
         $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script),[ref]$tokens,[ref]$parseErrors)
