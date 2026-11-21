@@ -23,6 +23,8 @@ This is one Windows-native automation package shared by Codex and Claude. Read [
 
 ## Change and ship
 
+- **Issues first (owner rule 2026-11-21).** Every idea or change the owner gives is first recorded as an issue in GitLab project `ssm/shared-computer-use` (search first), then built; progress and evidence go into that issue's comments, and it is closed only when verified live. Findings and designs live in the issue or in this repo's existing docs, never in new standalone documents or throwaway markdown files. Releases, decisions and reports cite issue links.
+- Releases are built and published from the owner's laptop (no CI/CD; it is disabled on this project): installer to the GitLab release and the GitHub release, source synced to GitHub.
 - Preserve dirty work; no subagents or delegated work. Keep the solution small and reuse existing executors/components.
 - UI authority is [DESIGN.md](DESIGN.md) and [provenance](monitor-ui/PROVENANCE.md). Improve flows within the original Chitragupta components, palette and themes. No raw JSON/schema/stack-trace dumps in any product view. Translate observations into labeled states, metrics and useful actions.
 - Build static UI with `node monitor-ui/build.mjs`. Test actual rendered controls, desktop/mobile, light/dark, loading/empty/error/disconnect states, column filters, pagination and details. Monitor status is never a substitute for testing the relevant business action.
