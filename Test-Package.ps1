@@ -9,12 +9,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Monitor syntax check failed.' }
     & node --check (Join-Path $PSScriptRoot 'jev-use\terminal-worker.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Terminal worker syntax check failed.' }
+    & node --check (Join-Path $PSScriptRoot 'jev-use\chatgpt-bridge.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'ChatGPT MCP bridge syntax check failed.' }
     # Add-Type's compiler resolves System.dll from the process working directory first, and an installed copy keeps a .NET Core System.dll in its root.
     [Environment]::CurrentDirectory = $env:TEMP
     Add-Type -Path (Join-Path $PSScriptRoot 'jev-use\process-identity.cs')
     & node --check (Join-Path $PSScriptRoot 'runtime-status.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime observation syntax check failed.' }
-    foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1','Nexus-Takeover.ps1','Update-Nexus.ps1','jev-use\restart-supervisor.ps1') {
+    foreach ($script in 'Monitor.ps1','Runtime-Status.ps1','Install-Skills.ps1','Setup.ps1','Nexus-Takeover.ps1','Installer-Recovery.ps1','Update-Nexus.ps1','jev-use\restart-supervisor.ps1') {
         $parseErrors=$null
         $tokens=$null
         $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script),[ref]$tokens,[ref]$parseErrors)
@@ -24,6 +26,16 @@ try {
     if (Test-Path -LiteralPath $takeoverTests) {
         & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $takeoverTests
         if ($LASTEXITCODE -ne 0) { throw 'Nexus installer takeover safety tests failed.' }
+    }
+    $recoveryTests = Join-Path $PSScriptRoot 'tests\InstallerRecovery.Tests.ps1'
+    if (Test-Path -LiteralPath $recoveryTests) {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $recoveryTests
+        if ($LASTEXITCODE -ne 0) { throw 'Nexus installer rollback tests failed.' }
+    }
+    $updaterRecoveryTests = Join-Path $PSScriptRoot 'tests\UpdaterRecovery.Tests.ps1'
+    if (Test-Path -LiteralPath $updaterRecoveryTests) {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $updaterRecoveryTests
+        if ($LASTEXITCODE -ne 0) { throw 'Nexus updater recovery orchestration tests failed.' }
     }
     # Redirect from a file: piping from PowerShell is not reliable for a stdio server.
     $request = Join-Path ([IO.Path]::GetTempPath()) ('mcp-request-' + [guid]::NewGuid() + '.json')

@@ -17,7 +17,7 @@ $version = "$major.$minor.$patch"
 $tag = "v$version"
 Write-Host "Releasing $tag (previous $last)"
 
-./Build-Deployment.ps1 -Version $version -Installer
+./Build-Deployment.ps1 -Version $version -Installer -InstallerOnly
 # Only the installer is published: the updater and every install use it, and the ZIP would add 114 MB to each upload.
 $files = Get-ChildItem dist -File | Where-Object { $_.Name -eq "Nexus-Harness-Setup-$version-windows-x64.exe" }
 if ($files.Count -ne 1) { throw "Expected the installer for $version in dist." }

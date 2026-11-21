@@ -41,7 +41,7 @@ export function registerTerminalTools(registry: ToolRegistry<ToolInvocation>) {
   });
   registry.bind('restart_application', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask }) => {
     let output: string;
-    output = JSON.stringify(await restartApplication({ pid: args.pid as number, expected_name: required('expected_name'), expected_start_time: required('expected_start_time'), confirm: args.confirm as boolean }));
+    output = JSON.stringify(await restartApplication({ pid: args.pid as number, expected_name: required('expected_name'), expected_start_time: required('expected_start_time'), confirm: args.confirm as boolean, quit_via_ctrl_q: args.quit_via_ctrl_q as boolean | undefined }));
     return output;
   });
   registry.bind('restart_status', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask }) => {

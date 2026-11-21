@@ -1,5 +1,6 @@
-param([string]$Version = 'dev', [string]$SourceRef = 'HEAD', [switch]$Installer)
+param([string]$Version = 'dev', [string]$SourceRef = 'HEAD', [switch]$Installer, [switch]$InstallerOnly)
 $ErrorActionPreference = 'Stop'
+if ($InstallerOnly -and -not $Installer) { throw 'InstallerOnly requires Installer.' }
 $phase = [Diagnostics.Stopwatch]::StartNew()
 if ($Version -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid version label.' }
 Add-Type -AssemblyName System.IO.Compression
@@ -77,25 +78,27 @@ if ($LASTEXITCODE -ne 0) { throw 'Installer backend self-test failed.' }
 Copy-Item -LiteralPath $setupExe -Destination $stage
 $outputDir = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-$output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"
-if (Test-Path -LiteralPath $output) { throw 'Output archive exists; choose a fresh version label.' }
-$sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
-if (-not $sevenZip) {
-    $installedSevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-    $sevenZip = Get-Command $installedSevenZip -ErrorAction SilentlyContinue
+if (-not $InstallerOnly) {
+    $output = Join-Path $outputDir "shared-computer-use-$Version-windows-x64.zip"
+    if (Test-Path -LiteralPath $output) { throw 'Output archive exists; choose a fresh version label.' }
+    $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+    if (-not $sevenZip) {
+        $installedSevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+        $sevenZip = Get-Command $installedSevenZip -ErrorAction SilentlyContinue
+    }
+    if ($sevenZip) {
+        Push-Location $stageRoot
+        try {
+            & $sevenZip.Source a -tzip -mx=1 -bd -bso0 $output 'shared-computer-use'
+            if ($LASTEXITCODE -ne 0) { throw 'Deployment archive creation failed.' }
+        } finally { Pop-Location }
+    } else {
+        [IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Fastest,$true)
+    }
+    Get-Item -LiteralPath $output | Select-Object FullName,Length
+    Get-FileHash -LiteralPath $output -Algorithm SHA256
+    Write-Host ('Deployment ZIP: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
 }
-if ($sevenZip) {
-    Push-Location $stageRoot
-    try {
-        & $sevenZip.Source a -tzip -mx=1 -bd -bso0 $output 'shared-computer-use'
-        if ($LASTEXITCODE -ne 0) { throw 'Deployment archive creation failed.' }
-    } finally { Pop-Location }
-} else {
-    [IO.Compression.ZipFile]::CreateFromDirectory($stage,$output,[IO.Compression.CompressionLevel]::Fastest,$true)
-}
-Get-Item -LiteralPath $output | Select-Object FullName,Length
-Get-FileHash -LiteralPath $output -Algorithm SHA256
-Write-Host ('Deployment ZIP: {0:N1}s' -f $phase.Elapsed.TotalSeconds)
 if ($Installer) {
     $iscc = Join-Path $PSScriptRoot 'dist\inno-compiler\ISCC.exe'
     if (-not (Test-Path -LiteralPath $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }

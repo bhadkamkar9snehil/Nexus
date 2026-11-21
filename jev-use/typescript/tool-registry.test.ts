@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { tools } from '../tool-catalog.js';
 import { ToolRegistry, type ToolDefinition } from '../tool-registry.js';
+import { registerTerminalTools } from '../tool-handlers/terminal.js';
+import type { ToolInvocation } from '../tool-context.js';
 
 const sample: ToolDefinition = {
   name: 'example_tool',
@@ -17,7 +19,7 @@ test('core catalog has stable unique names and valid tool schemas', () => {
   assert.equal(tools.length, 31);
   // Preserve the installed catalog in its original order. New tools must not change old contracts.
   const originalCatalog = tools.filter(tool => !['browser_read_page','web_scrape'].includes(tool.name));
-  assert.equal(createHash('sha256').update(JSON.stringify(originalCatalog)).digest('hex'), '4ce2b99ba890db910b797b21013ddde5bdc707814eb4c977d04744ad38125ffe');
+  assert.equal(createHash('sha256').update(JSON.stringify(originalCatalog)).digest('hex'), '9891aa270b9a39f66c15ccd2b882a4cf0579b9212b90fb2d7b2482efdc0cc735');
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, 'object');
     assert.equal(tool.inputSchema.additionalProperties, false);
@@ -25,6 +27,15 @@ test('core catalog has stable unique names and valid tool schemas', () => {
   for (const tool of tools) registry.bind(tool.name, async () => '{}');
   registry.assertReady();
   assert.deepEqual(registry.list(), tools);
+});
+
+test('restart shortcut option reaches the terminal handler', async () => {
+  const registry = new ToolRegistry<ToolInvocation>(tools);
+  registerTerminalTools(registry);
+  const tool = tools.find(item => item.name === 'restart_application')!;
+  assert.deepEqual(tool.inputSchema.properties.quit_via_ctrl_q, { type: 'boolean' });
+  const args = { pid: 1, expected_name: 'x', expected_start_time: '1', confirm: true, quit_via_ctrl_q: 'invalid' };
+  await assert.rejects(registry.execute('restart_application', { args, required: (name: string) => String(args[name as keyof typeof args]) } as ToolInvocation), /quit_via_ctrl_q/);
 });
 
 test('dispatches to the handler for the exact registered name', async () => {

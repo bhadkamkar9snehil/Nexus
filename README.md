@@ -230,6 +230,8 @@ The screenshots show a particular local run; counts and health differ on each ma
 
 The wizard copies the payload and calls the self-contained `Nexus.Setup.exe` for preflight and provisioning. The same helper handles Settings repair and packaged ZIP setup. It validates runtime checksums and the dependency lock, transfers only the verified monitor and processes, and checks Task Scheduler and the running monitor before reporting success. The interactive installer requests administrator approval if Windows denies access to a verified monitor task or the task belongs to another Windows user. Only takeover runs elevated. Setup still runs under the account that launched the installer. Silent upgrades report the privilege failure without displaying a prompt. If Windows denies takeover even with administrator approval, the previous owner can stop and remove their Nexus startup task before retrying. A responding monitor is not proof that a browser, search, desktop action or paid Jev request works. Its read-only server binds to loopback; the separate `map_files` review server has different behavior and port.
 
+When interpreting an empty `find_files` result, check the requested drive's `coverage.state`. An uncovered or loading drive cannot confirm absence.
+
 ## Keys, privacy and cost
 
 The default key is stored in `secrets\computeruse_1.xml`, encrypted with Windows DPAPI for the current Windows account. Do not put key values in source control, release bundles, logs or instructions. Keep the installation's secrets, browser profiles, sessions and run history on the same account and machine unless deliberately migrated. Codex and Claude authentication is separate from the TypeSafe key.

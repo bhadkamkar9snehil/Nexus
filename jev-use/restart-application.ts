@@ -12,10 +12,12 @@ const ps = (script: string) => new Promise<string>((resolve, reject) => {
     (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
 });
 
-export async function restartApplication(args: { pid: number; expected_name: string; expected_start_time: string; confirm: boolean }) {
+export async function restartApplication(args: { pid: number; expected_name: string; expected_start_time: string; confirm: boolean; quit_via_ctrl_q?: boolean }) {
   if (!Number.isSafeInteger(args.pid) || args.pid < 1 || args.confirm !== true ||
       !/^[\w .-]{1,100}$/.test(args.expected_name) || !/^\d{1,20}$/.test(args.expected_start_time))
     throw new Error('Provide the exact observed PID, name, start identity, and confirm=true');
+  if (args.quit_via_ctrl_q !== undefined && typeof args.quit_via_ctrl_q !== 'boolean')
+    throw new Error('quit_via_ctrl_q must be a boolean');
   const found = (await listProcesses({ pid: args.pid, limit: 1 })).processes[0];
   if (!found || found.name.toLowerCase() !== args.expected_name.toLowerCase() || found.start_identity !== args.expected_start_time)
     throw new Error('Process identity mismatch; refresh the process list');

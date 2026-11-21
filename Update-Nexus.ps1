@@ -4,7 +4,7 @@
 #   3. install silently through a one-off task in the user's session, so it outlives the monitor the installer closes.
 # Turn it off with the Install updates automatically switch on the Updates page (updates.json, autoUpdate=false).
 # -DryRun reports the decision without downloading or installing; the -Releases/-Installed/-Idle/-Runs overrides make that testable.
-param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson, [switch]$FunctionsOnly)
+param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson, [switch]$FunctionsOnly, [switch]$NoRecovery)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $folder = Join-Path $env:LOCALAPPDATA 'Nexus'
@@ -41,13 +41,20 @@ function Test-NexusMonitorHealthy([string]$InstallRoot) {
     }
     return $false
 }
-function Save-NexusInstallReceipt([string]$TargetVersion, [int]$ExitCode, [bool]$MonitorReady, [string]$InstallerLog) {
+function Save-NexusInstallReceipt([string]$TargetVersion, [int]$ExitCode, [bool]$MonitorReady, [string]$InstallerLog, [int]$InstallerExitCode = -1, [string]$RecoveryStatus = 'not-required', [string]$RecoverySnapshot = '', [string]$PreviousVersion = '', [string]$RecoveryError = '') {
     $receipt = @{
         version = $TargetVersion
         recordedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
         exitCode = $ExitCode
+        installerExitCode = $InstallerExitCode
         monitorVerified = $MonitorReady
         installerLog = $InstallerLog
+        recovery = @{
+            status = $RecoveryStatus
+            snapshot = $RecoverySnapshot
+            previousVersion = $PreviousVersion
+            error = $RecoveryError
+        }
     }
     $receiptFile = Join-Path $folder 'last-install-receipt.json'
     $tempFile = $receiptFile + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
@@ -63,7 +70,13 @@ if ($FunctionsOnly) { return }
 if ($Install) {
     $task = 'Nexus-AutoUpdate-Install'
     $resultCode = 1
+    $installerExitCode = -1
     $monitorReady = $false
+    $recoveryStatus = 'not-required'
+    $recoveryError = ''
+    $recoverySnapshot = ''
+    $previousVersion = ''
+    $previousRoot = ''
     $safeVersion = if ($Version -match '^v?\d+\.\d+\.\d+$') { $Version.TrimStart('v') } else { 'unknown' }
     $installerLog = Join-Path $folder ('installer-{0}-{1}.log' -f $safeVersion, (Get-Date -Format 'yyyyMMdd-HHmmss'))
     try {
@@ -71,10 +84,34 @@ if ($Install) {
             throw 'The staged Nexus installer is missing.'
         }
         if ($safeVersion -eq 'unknown') { throw 'Invalid target Nexus version.' }
+        if (-not $NoRecovery) {
+            $previous = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+            $previousVersion = [string]$previous.DisplayVersion
+            $previousRoot = [string]$previous.InstallLocation
+            if (-not $previousVersion -or -not [IO.Path]::IsPathRooted($previousRoot) -or
+                [IO.Path]::GetFullPath($previousRoot).TrimEnd('\') -ine [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')) {
+                throw 'Cannot verify the current Nexus installation. No update was started.'
+            }
+            if (-not (Test-NexusMonitorHealthy -InstallRoot $previousRoot)) {
+                throw 'The existing managed Nexus monitor is not healthy. Repair the current version before updating.'
+            }
+            $recoveryScript = Join-Path $folder 'Installer-Recovery.ps1'
+            $takeoverScript = Join-Path $folder 'Nexus-Takeover-Recovery.ps1'
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Installer-Recovery.ps1') -Destination $recoveryScript -Force
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Nexus-Takeover.ps1') -Destination $takeoverScript -Force
+            . $recoveryScript -FunctionsOnly
+            $recoverySnapshot = New-NexusRecoverySnapshot -installRoot $previousRoot -version $previousVersion -store (Join-Path $folder 'installer-recovery')
+            $recoveryStatus = 'snapshot-ready'
+            Write-Log "Verified rollback snapshot for $previousVersion at $recoverySnapshot"
+        } else {
+            $recoveryStatus = 'disabled'
+            Write-Log 'Installer rollback disabled by explicit command-line option.'
+        }
         Write-Log "Installing $Version; installer diagnostic log: $installerLog"
         $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', ('/LOG="' + $installerLog + '"'))
         $installer = Start-Process -FilePath $File -ArgumentList $arguments -Wait -PassThru
-        $resultCode = [int]$installer.ExitCode
+        $installerExitCode = [int]$installer.ExitCode
+        $resultCode = $installerExitCode
         Write-Log "Installer finished with exit code $resultCode; log: $installerLog"
         if ($resultCode -eq 0) {
             $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
@@ -93,10 +130,50 @@ if ($Install) {
             }
         }
     } catch {
-        Write-Log ('Installer execution failed: ' + $_.Exception.GetType().Name)
+        Write-Log ('Installer execution failed: ' + $_.Exception.Message)
         $resultCode = 1
     } finally {
-        Save-NexusInstallReceipt -TargetVersion $Version -ExitCode $resultCode -MonitorReady $monitorReady -InstallerLog $installerLog
+        if ($recoverySnapshot -and $resultCode -eq 0) {
+            $recoveryStatus = 'previous-version-saved'
+            try {
+                $pruned = Remove-NexusOldRecoverySnapshots -store (Join-Path $folder 'installer-recovery') -keep 2
+                if ($pruned -gt 0) { Write-Log "Removed $pruned old unprotected recovery snapshot(s)." }
+            } catch { Write-Log ('Recovery retention cleanup failed: ' + $_.Exception.Message) }
+        } elseif ($recoverySnapshot -and $resultCode -ne 0) {
+            try {
+                $after = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+                if ([string]$after.DisplayVersion -eq $previousVersion -and
+                    (Test-NexusMonitorHealthy -InstallRoot $previousRoot)) {
+                    $recoveryStatus = 'previous-version-running'
+                    Write-Log "Previous Nexus $previousVersion is still healthy; no file restore needed."
+                } else {
+                    $recoveryStatus = 'restore-started'
+                    Write-Log "Restoring Nexus $previousVersion from $recoverySnapshot"
+                    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $folder 'Nexus-Takeover-Recovery.ps1') -TargetDir $previousRoot
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not safely stop the failed Nexus installation for rollback.' }
+                    $restored = Restore-NexusRecoveryFiles -snapshot $recoverySnapshot -installRoot $previousRoot
+                    if ($restored -ne $previousVersion) { throw 'Recovery restored an unexpected version.' }
+                    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $previousRoot 'Setup.ps1') -NoBrowserAtSignIn
+                    if ($LASTEXITCODE -ne 0) { throw 'Previous Nexus setup failed after file restoration.' }
+                    $registry = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+                    if ([string]$registry.DisplayVersion -ne $previousVersion -or
+                        -not (Test-NexusMonitorHealthy -InstallRoot $previousRoot)) {
+                        throw 'Previous Nexus version or monitor could not be verified after rollback.'
+                    }
+                    $recoveryStatus = 'restored-and-verified'
+                    Write-Log "Restored and verified previous Nexus $previousVersion."
+                }
+            } catch {
+                $recoveryStatus = 'restore-failed'
+                $recoveryError = $_.Exception.Message
+                try { Protect-NexusRecoverySnapshot -snapshot $recoverySnapshot }
+                catch { Write-Log ('Could not mark failed recovery snapshot as protected: ' + $_.Exception.Message) }
+                Write-Log "Nexus rollback failed: $recoveryError. Recovery snapshot retained at $recoverySnapshot"
+            }
+        } elseif (-not $NoRecovery -and $resultCode -ne 0) {
+            $recoveryStatus = 'snapshot-unavailable'
+        }
+        Save-NexusInstallReceipt -TargetVersion $Version -ExitCode $resultCode -MonitorReady $monitorReady -InstallerLog $installerLog -InstallerExitCode $installerExitCode -RecoveryStatus $recoveryStatus -RecoverySnapshot $recoverySnapshot -PreviousVersion $previousVersion -RecoveryError $recoveryError
         Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
     }
     exit $resultCode

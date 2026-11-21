@@ -18,17 +18,32 @@ export function uffsExecutable() {
   return existsSync(packageExe) ? packageExe : 'uffs';
 }
 
-export async function searchStatus() {
+async function readSearchStatus() {
   const { stdout } = await execute(uffsExecutable(), ['--daemon', 'status', '--json'], { windowsHide: true, timeout: 5000, maxBuffer: 1024 * 1024 });
   const data = JSON.parse(stdout);
-  return JSON.stringify({
+  return {
     status: data.running ? 'done' : 'idle', running: data.running,
     version: data.status?.version ?? data.stats?.version, pid: data.status?.pid,
     readingViaBroker: data.status?.reading_via_broker, drives: data.drives,
     records: data.stats?.total_records, startup_ms: data.stats?.startup_duration_ms,
     workingSetBytes: data.status?.rss_bytes, indexHeapBytes: data.status?.index_heap_bytes,
     liveUpdateLoops: data.status?.live_update?.active_loops, decisions: 0, steps: 0,
-  });
+  };
+}
+
+export async function searchStatus() {
+  return JSON.stringify(await readSearchStatus());
+}
+
+type IndexedDrive = { letter: string; loading?: boolean; source?: string; tier?: string; records?: number };
+
+export function driveCoverage(drive: string, drives: IndexedDrive[] | undefined) {
+  const letter = drive.toUpperCase();
+  if (!Array.isArray(drives)) return { drive: letter, state: 'unknown' };
+  const indexed = drives.find(entry => entry.letter.toUpperCase() === letter);
+  if (!indexed) return { drive: letter, state: 'uncovered' };
+  return { drive: letter, state: indexed.loading ? 'loading' : 'indexed',
+    source: indexed.source, tier: indexed.tier, records: indexed.records };
 }
 
 export async function findFiles(options: Options, addUsage: (usage: unknown) => void) {
@@ -51,6 +66,8 @@ export async function findFiles(options: Options, addUsage: (usage: unknown) => 
   const limited = rows.length > options.limit;
   const matches = rows.slice(0, options.limit);
   const searchMs = Date.now() - started;
+  const index = await readSearchStatus().catch(() => undefined);
+  const coverage = driveCoverage(options.drive, index?.running ? index.drives : undefined);
   let best: FileRow | null = null;
   let decisions = 0;
   if (options.query && matches.length) {
@@ -63,5 +80,5 @@ export async function findFiles(options: Options, addUsage: (usage: unknown) => 
     decisions = 1;
     best = answer.selectedId === 'none' ? null : candidates[Number(answer.selectedId.slice(1))];
   }
-  return JSON.stringify({ status: 'done', engine: 'uffs', matches, best, limited, rankedCandidates: options.query ? Math.min(24, matches.length) : 0, search_ms: searchMs, elapsed_ms: Date.now() - started, decisions, steps: 0 });
+  return JSON.stringify({ status: 'done', engine: 'uffs', coverage, matches, best, limited, rankedCandidates: options.query ? Math.min(24, matches.length) : 0, search_ms: searchMs, elapsed_ms: Date.now() - started, decisions, steps: 0 });
 }

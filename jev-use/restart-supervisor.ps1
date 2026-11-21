@@ -27,7 +27,20 @@ try {
     Start-Sleep -Seconds 10
     $target = Get-Process -Id $state.pid -ErrorAction Stop
     if ($target.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -ne $state.expected_start_time) { throw 'Process identity changed before closing.' }
-    if (-not $target.CloseMainWindow()) { throw 'The application refused the graceful close request.' }
+    if ($state.quit_via_ctrl_q) {
+        $driver = Join-Path (Split-Path $PSScriptRoot -Parent) 'runtime\cua-driver.exe'
+        if (-not (Test-Path -LiteralPath $driver)) { $driver = Join-Path $env:LOCALAPPDATA 'Programs\Cua\cua-driver\bin\cua-driver.exe' }
+        if (-not (Test-Path -LiteralPath $driver)) { throw 'Cua Driver is unavailable for the requested quit shortcut.' }
+        $request = @{ pid = $target.Id; window_id = [long]$target.MainWindowHandle; keys = @('ctrl','q'); session = "nexus-restart-$Id" }
+        $result = ($request | ConvertTo-Json -Compress) | & $driver call hotkey
+        $response = ($result -join "`n") | ConvertFrom-Json
+        if ($response.effect -eq 'unverifiable') { $null = $target.WaitForExit(3000) }
+        if (-not $target.HasExited -and ($response.code -eq 'background_unavailable' -or $response.effect -eq 'unverifiable')) {
+            $request.delivery_mode = 'foreground'
+            $result = ($request | ConvertTo-Json -Compress) | & $driver call hotkey
+        }
+        if ($LASTEXITCODE -ne 0 -and -not $target.HasExited) { throw "Quit shortcut failed: $result" }
+    } elseif (-not $target.CloseMainWindow()) { throw 'The application refused the graceful close request.' }
     $state.state = 'close_requested'; Save-State
     if (-not $target.WaitForExit(30000)) { throw 'The application did not exit after the graceful close request.' }
     $state.state = 'exited'; Save-State

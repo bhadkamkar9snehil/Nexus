@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 
 test('restart requires an explicitly confirmed, observed process identity', async () => {
   await assert.rejects(restartApplication({ pid: 1, expected_name: 'x', expected_start_time: '1', confirm: false }), /confirm=true/);
+  await assert.rejects(restartApplication({ pid: 1, expected_name: 'x', expected_start_time: '1', confirm: true, quit_via_ctrl_q: 'yes' as unknown as boolean }), /quit_via_ctrl_q/);
   await assert.rejects(restartStatus('../other'), /Invalid restart id/);
 });
 
@@ -60,5 +61,33 @@ test('independent supervisor closes and restarts an exact interactive process', 
   } finally {
     for (const pid of [target.pid, restarted]) if (pid) { try { process.kill(pid); } catch {} }
     await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('quit shortcut restarts an app that refuses window close and preserves arguments', { timeout: 80000, skip: process.platform !== 'win32' }, async () => {
+  const fixture = join(import.meta.dirname, 'fixtures/restart-shortcut.ps1');
+  const target = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', fixture, '-Marker', 'nexus-restart-check']);
+  let errors = '';
+  target.stderr?.on('data', chunk => { errors += chunk; });
+  target.stdout?.on('data', chunk => { errors += chunk; });
+  target.unref();
+  let restarted = 0;
+  try {
+    await new Promise(r => setTimeout(r, 4000));
+    const original = (await listProcesses({ pid: target.pid! })).processes[0];
+    assert.ok(original?.start_identity, `pid=${target.pid} exit=${target.exitCode}: ${errors}`);
+    const client = await promisify(execFile)(process.execPath, ['--import', 'tsx', join(import.meta.dirname, 'fixtures/restart-client.ts'), String(original.pid), original.name, original.start_identity, 'ctrl-q']);
+    let status = JSON.parse(client.stdout);
+    for (let i = 0; i < 60 && !['restarted', 'failed'].includes(String(status.state)); i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      status = await restartStatus(String(status.id));
+    }
+    assert.equal(status.state, 'restarted', JSON.stringify(status));
+    restarted = Number(status.new_pid);
+    assert.ok(restarted > 0 && restarted !== target.pid);
+    const line = await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${restarted}").CommandLine`]);
+    assert.match(line.stdout, /nexus-restart-check/);
+  } finally {
+    for (const pid of [target.pid, restarted]) if (pid) { try { process.kill(pid); } catch {} }
   }
 });

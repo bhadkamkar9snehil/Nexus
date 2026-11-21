@@ -36,7 +36,7 @@ async function runInstallerScenario(exitCode: number, installedVersion: string, 
       '  param([string]$TaskName, [switch]$Confirm, [string]$ErrorAction)',
       "  Write-Output 'SIMULATED_TASK_CLEANUP'",
       '}',
-      '& $env:NEXUS_TEST_SCRIPT -Install -File $env:ComSpec -Version v1.18.0',
+      '& $env:NEXUS_TEST_SCRIPT -Install -File $env:ComSpec -Version v1.18.0 -NoRecovery',
       'exit $LASTEXITCODE',
     ].join('\n');
     const wrapper = join(home, 'mock-updater.ps1');
@@ -93,6 +93,8 @@ test('silent updater returns a nonzero installer failure and does not claim succ
   assert.equal(result.code, 5, result.stderr + '\n' + result.log);
   assert.match(result.log, /Installer finished with exit code 5/);
   assert.equal(result.receipt.exitCode, 5);
+  assert.equal(result.receipt.installerExitCode, 5);
+  assert.equal(result.receipt.recovery.status, 'disabled');
   assert.equal(result.receipt.monitorVerified, false);
   assert.match(result.args, /\/LOG=/);
   assert.doesNotMatch(result.log, /Installed Nexus version verified/);
