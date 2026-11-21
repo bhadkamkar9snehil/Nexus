@@ -29,6 +29,8 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "optionalbrowser"; Description: "Install Google Chrome if no supported browser exists (requires internet)"; GroupDescription: "Optional setup:"; Flags: unchecked
+Name: "optionalsearch"; Description: "Install UFFS search service (may request administrator approval)"; GroupDescription: "Optional setup:"; Flags: unchecked
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "desktop,installer,.git*"
@@ -82,6 +84,10 @@ var ResultCode: Integer; Params: String;
 begin
   if CurStep = ssPostInstall then begin
     Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Setup.ps1') + '" -NoBrowserAtSignIn';
+    if not WizardSilent then begin
+      if IsTaskSelected('optionalbrowser') then Params := Params + ' -InstallBrowser';
+      if IsTaskSelected('optionalsearch') then Params := Params + ' -InstallSearch';
+    end;
     // SuppressibleMsgBox, not MsgBox: a silent install (the updater, an agent) must never wait for a click that nobody sees.
     if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       SuppressibleMsgBox('Nexus files were copied, but setup did not start. Retry with Nexus Settings > Set up or repair. Check %LOCALAPPDATA%\Nexus\setup.log. The installer reports failure.', mbError, MB_OK, IDOK)

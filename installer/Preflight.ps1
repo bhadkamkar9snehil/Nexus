@@ -1,9 +1,11 @@
 param([Parameter(Mandatory=$true)][string]$InstallDir, [Parameter(Mandatory=$true)][string]$ResultFile)
 $ErrorActionPreference = 'Stop'
 try {
-    $target = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+    $target = [IO.Path]::GetFullPath($InstallDir)
     $takeover = Join-Path $PSScriptRoot 'Nexus-Takeover.ps1'
     if (-not (Test-Path -LiteralPath $takeover)) { throw 'Nexus takeover helper is missing. Download the installer again.' }
+    . $takeover -DefinitionsOnly
+    $target = Test-NexusInstallDestination $target
 
     $message = ''
     for ($attempt = 1; $attempt -le 2; $attempt++) {

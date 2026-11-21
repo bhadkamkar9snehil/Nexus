@@ -70,12 +70,42 @@ function Test-NexusProcessCommand($process, [string[]]$roots) {
     return $false
 }
 
-if ($DefinitionsOnly) { return }
-if ([string]::IsNullOrWhiteSpace($TargetDir)) { throw 'TargetDir is required.' }
+function Test-NexusInstallDestination([string]$installDirectory) {
+    if ([string]::IsNullOrWhiteSpace($installDirectory)) { throw 'TargetDir is required.' }
+    $absolute = [IO.Path]::GetFullPath($installDirectory)
+    if ($absolute -eq [IO.Path]::GetPathRoot($absolute)) { throw 'Choose a Nexus subfolder, not a drive root.' }
+    $absolute = $absolute.TrimEnd('\')
+    if ($absolute -like '*\AppData\*') { throw 'Choose a Nexus installation folder outside AppData.' }
+    if (Test-Path -LiteralPath (Join-Path $absolute '.git')) { throw 'Cannot install Nexus into a Git working directory.' }
+    if (Test-Path -LiteralPath $absolute -PathType Leaf) { throw 'The chosen Nexus folder is an existing file. Choose a directory.' }
+    $probe = Join-Path $absolute ('.nexus-write-test-' + [guid]::NewGuid().ToString('N'))
+    $stream = $null
+    try {
+        New-Item -ItemType Directory -Path $absolute -Force -ErrorAction Stop | Out-Null
+        $stream = [IO.File]::Open($probe, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    } catch {
+        throw ('Cannot write to Nexus install folder "{0}": {1}. Choose a writable folder or run the installer as administrator.' -f $absolute, $_.Exception.Message)
+    } finally {
+        if ($stream) { $stream.Dispose() }
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    }
+    return $absolute
+}
 
-$target = [IO.Path]::GetFullPath($TargetDir).TrimEnd('\')
-if ($target -like '*\AppData\*') { throw 'Choose a Nexus installation folder outside AppData.' }
-if (Test-Path -LiteralPath (Join-Path $target '.git')) { throw 'Cannot install Nexus into a Git working directory.' }
+function Get-NexusPortBlockerDescription($listeners) {
+    $ids = @($listeners | ForEach-Object { [int]$_.OwningProcess } | Where-Object { $_ -gt 0 } | Select-Object -Unique)
+    $names = @($ids | ForEach-Object {
+        $id = $_
+        $process = Get-Process -Id $id -ErrorAction SilentlyContinue
+        if ($process) { '{0} (PID {1})' -f $process.ProcessName, $id }
+        else { 'PID {0}' -f $id }
+    })
+    if ($names.Count -eq 0) { return 'an unidentified process' }
+    return ($names -join ', ')
+}
+
+if ($DefinitionsOnly) { return }
+$target = Test-NexusInstallDestination $TargetDir
 
 $taskName = 'SharedHarness-Monitor'
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -110,7 +140,8 @@ if ($server) {
     # An unrecognized listener is not permission to terminate an arbitrary program.
     $listeners = @(Get-NetTCPConnection -LocalPort 8769 -State Listen -ErrorAction SilentlyContinue)
     if ($listeners.Count -gt 0) {
-        throw 'Port 8769 is in use, but a Nexus monitor could not be verified. No process was stopped.'
+        $blockers = Get-NexusPortBlockerDescription $listeners
+        throw "Port 8769 is used by $blockers, but Nexus cannot verify its identity. Close that application, then retry. No process was stopped."
     }
 }
 $roots = @($roots | Select-Object -Unique)

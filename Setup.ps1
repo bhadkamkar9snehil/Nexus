@@ -1,4 +1,4 @@
-param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn)
+param([switch]$EnrollKey, [switch]$NoBrowserAtSignIn, [switch]$InstallBrowser, [switch]$InstallSearch)
 $ErrorActionPreference = 'Stop'
 $folder = Join-Path $env:LOCALAPPDATA 'Nexus'
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -37,7 +37,7 @@ if ($task.State -ne 'Running' -or $health.application -ne 'shared-computer-use-m
 Write-Host "Nexus monitor verified: PID $($health.pid); task running; installation root matches."
 
 # Optional integrations can report warnings, but cannot prevent the verified monitor from working.
-try {
+if ($InstallBrowser) { try {
     $browsers = @(
         (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
         (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe')
@@ -46,11 +46,11 @@ try {
         & winget.exe install --id Google.Chrome --exact --source winget --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
         if ($LASTEXITCODE -ne 0) { throw 'Chrome installation failed or requires administrator approval' }
     }
-} catch { Warn-Optional 'Browser integration' $_.Exception.Message }
+} catch { Warn-Optional 'Browser integration' $_.Exception.Message } }
 
-try {
+if ($InstallSearch) { try {
     & (Join-Path $PSScriptRoot 'Install.ps1') -InstallSearch -UseBundledDependencies
-} catch { Warn-Optional 'UFFS search service' $_.Exception.Message }
+} catch { Warn-Optional 'UFFS search service' $_.Exception.Message } }
 
 try {
     $cuaStatus = & (Join-Path $runtime 'cua-driver.exe') autostart status

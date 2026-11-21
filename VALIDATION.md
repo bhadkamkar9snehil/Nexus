@@ -1,5 +1,11 @@
 # Validation and acceptance
 
+## Installer destination and optional setup safeguards — 2026-11-21
+
+The preflight now proves that the selected destination is writable before it stops the old Nexus monitor. It rejects drive roots, existing files and Git checkouts, and removes its test file after the check. An unrelated listener on port 8769 reports its process name and PID without being terminated. Interactive setup offers opt-in Chrome and UFFS installation; silent updates do not run either external installer. Existing verified monitor takeover rules remain unchanged.
+
+**Local validation:** Windows PowerShell installer takeover and destination tests passed without stopping processes. The full `Test-Package.ps1` passed, including TypeScript, PowerShell syntax, and MCP discovery. The pinned Inno Setup compiler produced a small fixture installer successfully with the revised script. That fixture is a syntax/package check, not a real installation or clean-machine acceptance. This wave has not replaced the installed Nexus on any computer. GitLab branch validation, preview artifact checks, and live installation acceptance are separate release gates.
+
 ## Unattended installer diagnostics and verified monitor receipt — 2026-11-21
 
 **Issue #60 increment:** The previous silent updater returned success when Inno Setup returned zero and the installed version matched, even if the monitor task was missing or port 8769 belonged to the wrong installation. A separate interactive install once returned exit code 7 without an Inno logfile. The updater now passes Inno Setup `/LOG` on every unattended install attempt, records its path in `%LOCALAPPDATA%\\Nexus\\auto-update.log`, and saves `%LOCALAPPDATA%\\Nexus\\last-install-receipt.json` with the target version, exit code, monitor verification state and diagnostic path. It requires a running `SharedHarness-Monitor` task and a responding, managed monitor whose root matches the registered installation before it returns success. It retries monitor health for a bounded period after setup.
