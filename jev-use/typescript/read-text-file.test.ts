@@ -4,8 +4,8 @@ import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readTextFile } from '../read-text-file.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 test('nexus_read_file paginates and tails UTF-8 text', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-read-'));

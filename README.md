@@ -142,8 +142,9 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `list_sessions` | Inspect terminal sessions across Codex, Claude and CLI processes. |
 | `force_terminate` | Stop a managed terminal session and its process tree. |
 | `nexus_peers` | Connect to other Nexus installations, switch them on/off and set mail/chat permissions. |
-| `nexus_mail` | Send and read mail or chat between agents over peer connections. |
+| `nexus_mail` | Send and read mail or chat between agents over peer connections; `wait` blocks until a message arrives (realtime). |
 | `nexus_webhooks` | Choose which GitLab events and projects the receiver accepts, which notify, and which peers get a copy. |
+| `nexus_events` | Poll Nexus events (MCP Events extension; push and webhook delivery are protocol methods): GitLab webhook events and peer messages, with cursors. |
 | `list_processes` | Inspect Windows PID, process name, cumulative CPU seconds and working-set memory. |
 | `kill_process` | Stop a non-managed process using its PID, exact name, observed start identity and explicit confirmation. |
 | `map_files` | Build file maps, review pages and dry-run organization proposals; it does not move files. |

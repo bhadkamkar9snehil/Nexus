@@ -10,8 +10,8 @@ import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { TypeSafeClient } from '@typesafe-ai/sdk';
 
 import { providerObservation, validateRequest } from './choose_action.js';

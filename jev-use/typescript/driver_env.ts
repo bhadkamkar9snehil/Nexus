@@ -1,6 +1,6 @@
 import process from 'node:process';
 
-import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
 
 // The MCP SDK stdio transport passes only a small default allowlist (HOME,
 // PATH, USER, ...) on POSIX. On Linux that drops the desktop session, so the

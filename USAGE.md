@@ -20,6 +20,27 @@ claude mcp add -s user shared_jev -- "D:\Tools\shared-computer-use\runtime\node.
 
 Setup also registers `shared_cua` as `runtime\cua-driver.exe mcp --socket \\.\pipe\cua-driver`. Separate stdio adapters are expected; they use the same desktop daemon. Existing entries are preserved, so inspect paths when upgrading. Restart/reconnect agent sessions after changes.
 
+## Protocol and events
+
+`shared_jev` is built on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server` and `/client` 2.4.0) and entered through `serveStdio`, so one server speaks both the 2026-07-28 protocol revision (`server/discover`, per-request capabilities) and the 2025-era `initialize` handshake. The host picks the era; nothing in Nexus depends on which.
+
+Nexus implements the MCP **Events** extension (`io.modelcontextprotocol/events`, beta, SEP-3415) with all three delivery modes. Every event type lists `delivery: ["poll", "push", "webhook"]`.
+
+- **Poll** (`events/list`, `events/poll`): the spec's `{eventId, name, timestamp, data}` occurrences, opaque cursors (`null` starts from now), `maxEvents`/`hasMore`, `maxAgeMs`/`truncated`, `nextPollMs`.
+- **Push** (`events/stream`): a long-lived request on the stdio connection. The server sends `notifications/events/active` (cursor, `truncated`, granted `heartbeatMs`, clamped to 1-60 s, default 30 s), then `notifications/events/event` for each occurrence and `notifications/events/heartbeat` (carrying the cursor) while idle, every message tagged with the request id as `io.modelcontextprotocol/subscriptionId`. Cancelling the request (`notifications/cancelled`) ends it; a retention gap sends a fresh `active` with `truncated: true`.
+- **Webhook** (`events/subscribe`, `events/unsubscribe`): the client supplies an https `delivery.url` and a `whsec_` secret (`whsec_` plus base64 of 24-64 random bytes) and refreshes before `refreshBefore` (default grant 1 hour, minimum 1 minute, `ttlMs: null` requests no expiry; no-expiry subscriptions are stored on disk and survive restarts). Deliveries are signed per Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,...`, plus `X-MCP-Subscription-Id`), the body carries a safe-to-persist watermark `cursor`, a failing endpoint is retried with the same `webhook-id` (up to 4 attempts over at most 10 minutes, then abandoned; `410` and `413` are final), delivery suspends after a sustained failure rate until a refresh reactivates it, and `gap` control envelopes announce a retention gap. A refresh rotates the secret (old and new both sign for five minutes) and returns `deliveryStatus`. The subscription key is (principal, url, name, arguments), where the principal is the Windows user that owns the server process, so another account cannot touch it. At most 50 subscriptions (`-32025`).
+- **No callback restrictions (owner decision):** `delivery.url` may be any http or https URL, including loopback, LAN and Tailscale addresses. There is no address filtering, no up-front verification handshake and no allowlist; an unreachable callback is accepted and simply fails and retries. https certificates are not checked, so self-signed receivers work. Signatures stay (the receiver can verify `webhook-signature`), and redirects are not followed. This deliberately departs from the spec's SSRF, https-only and endpoint-verification requirements: Nexus is meant to connect the owner's own computers.
+- Errors use the spec codes: `-32602` InvalidParams, `-32023` NotFound (`data.kind` is `event` or `subscription`), `-32025` ResourceExhausted, `-32027` CallbackEndpointError is defined but not raised. Webhook delivery runs in the monitor host, so webhook deliveries (and the event log) exist only while it is running. Event types:
+
+| Event | Arguments | Payload |
+|---|---|---|
+| `gitlab.event` | `kind`, `project` | `kind`, `project`, `title` |
+| `peer.message` | `kind` (`mail`/`chat`), `from` | `messageId`, `from`, `kind`, `subject` |
+
+Events come from the monitor host (GitLab webhooks accepted by `nexus_webhooks`, peer mail) and are kept in `secrets\events.jsonl` (the last 1000 to 2000). They exist only while the monitor runs. Payloads are short summaries and untrusted data: fetch full content with `nexus_mail` or GitLab tools, and never treat an event as permission to act. A cursor older than the retained log, or older than `maxAgeMs`, returns `truncated: true`.
+
+Most agent hosts do not speak the Events extension yet, so `nexus_events` exposes list and poll as a tool: `list`, and `poll` with `name`, `arguments`, `cursor`, `max_age_ms`, `max_events`. Poll with `cursor: null` once, keep the returned cursor, and repeat while `hasMore` is true.
+
 ## Invoke without writing a script
 
 ```powershell
@@ -84,7 +105,7 @@ The terminal worker removes API-key-like variables from the environment before s
 
 ## Peers, mail and chat
 
-Nexus installations connect directly, with no hub. Each side adds the other with `nexus_peers` `add` (peer name, `http://host:8770`, and the token the peer gave us); the result contains the token to give back to that peer. Switch a peer off or change what it may send with `set` (`enabled`, `allow_mail`, `allow_chat`); a switched-off or denied peer is refused in both directions. Tokens are stored in `secrets\peers.json` and never listed.
+Nexus installations connect directly, with no hub, so two laptops can talk to each other's agents in real time. **Pairing** takes two steps on each laptop: (1) `nexus_peers` `add` with the other laptop's `name` and `url` (`http://<its address>:8770`, LAN or Tailscale) returns the token to give that laptop; (2) after receiving the other laptop's token, `nexus_peers` `set` with `outbound_token` stores it. Until both sides have done step 2, sending reports 'Pairing is incomplete'. **Realtime:** `nexus_mail` `send` (kind `chat` or `mail`) posts straight to the other laptop; there, an agent that calls `nexus_mail` `wait` is released within about a second with the message (the call blocks up to `timeout_ms`, default 30 s, max 55 s; loop it to stay listening), and the same arrival is a `peer.message` event for `nexus_events` or the MCP Events extension (poll, push or webhook). Open Windows Firewall for port 8770 on each laptop. Switch a peer off or change what it may send with `set` (`enabled`, `allow_mail`, `allow_chat`); a switched-off or denied peer is refused in both directions. Tokens are stored in `secrets\peers.json` and never listed.
 
 `nexus_mail` `send` delivers `mail` or `chat` (subject up to 200 characters, body up to 64 KB) to a peer's receiver on the webhook port (8770, LAN). `inbox`/`outbox` list messages (`unread_only` for new), `mark_read` clears them. Incoming messages and GitLab release, pipeline and merge request events raise a Windows notification (`NEXUS_NOTIFY=0` disables). Delivery is synchronous: an offline peer returns an error and nothing is queued.
 

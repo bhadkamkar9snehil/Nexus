@@ -6,13 +6,14 @@ import { join } from 'node:path';
 
 const kinds = ['mail', 'chat'];
 const maxBody = 64 * 1024;
-const file = (root, name) => join(root, 'secrets', name);
+const folder = (root) => process.env.NEXUS_PEERS_DIR || join(root, 'secrets');
+const file = (root, name) => join(folder(root), name);
 
 async function load(root) {
   try { return JSON.parse(await readFile(file(root, 'peers.json'), 'utf8')); } catch { return { peers: [] }; }
 }
 async function save(root, config) {
-  await mkdir(join(root, 'secrets'), { recursive: true });
+  await mkdir(folder(root), { recursive: true });
   await writeFile(file(root, 'peers.json'), JSON.stringify(config, null, 2));
 }
 const clean = ({ name, url, enabled, allow }) => ({ name, url, enabled, allow });
@@ -23,20 +24,25 @@ export async function listPeers(root) { return (await load(root)).peers.map(clea
 export async function addPeer(root, { name, url, outbound, allow }) {
   if (!/^[\w.-]{1,40}$/.test(name ?? '')) throw new Error('Peer name must be 1-40 letters, digits, dot, dash or underscore');
   if (!/^https?:\/\/[^\s/]+/.test(url ?? '')) throw new Error('Peer url must be http(s)://host:port');
-  if (typeof outbound !== 'string' || outbound.length < 16) throw new Error('outbound token required');
+  // Pairing takes two steps: each side adds the other (getting the token to hand over), then each sets the token it received.
+  if (outbound !== undefined && (typeof outbound !== 'string' || outbound.length < 16)) throw new Error('outbound token must be the 16+ character token the peer gave you');
   const config = await load(root);
   let peer = config.peers.find(p => p.name === name);
   if (!peer) config.peers.push(peer = { name, enabled: true, allow: { mail: true, chat: true }, inbound: randomBytes(24).toString('hex') });
-  Object.assign(peer, { url: url.replace(/\/+$/, ''), outbound });
+  Object.assign(peer, { url: url.replace(/\/+$/, ''), ...(outbound === undefined ? {} : { outbound }) });
   if (allow) peer.allow = { mail: allow.mail !== false, chat: allow.chat !== false };
   await save(root, config);
   return { ...clean(peer), inbound: peer.inbound };
 }
 
-export async function setPeer(root, name, { enabled, allow }) {
+export async function setPeer(root, name, { enabled, allow, outbound }) {
   const config = await load(root);
   const peer = config.peers.find(p => p.name === name);
   if (!peer) throw new Error('Unknown peer');
+  if (outbound !== undefined) {
+    if (typeof outbound !== 'string' || outbound.length < 16) throw new Error('outbound token must be the 16+ character token the peer gave you');
+    peer.outbound = outbound;
+  }
   if (typeof enabled === 'boolean') peer.enabled = enabled;
   if (allow) for (const kind of kinds) if (typeof allow[kind] === 'boolean') peer.allow[kind] = allow[kind];
   await save(root, config);
@@ -63,12 +69,12 @@ export async function readMailbox(root, { box = 'in', unread = false, limit = 50
 }
 
 export async function markRead(root, ids) {
-  await mkdir(join(root, 'secrets'), { recursive: true });
+  await mkdir(folder(root), { recursive: true });
   await appendFile(file(root, 'mailbox.jsonl'), ids.map(read => JSON.stringify({ read }) + '\n').join(''));
 }
 
 async function store(root, message) {
-  await mkdir(join(root, 'secrets'), { recursive: true });
+  await mkdir(folder(root), { recursive: true });
   await appendFile(file(root, 'mailbox.jsonl'), JSON.stringify(message) + '\n');
 }
 
@@ -84,6 +90,7 @@ export async function sendMessage(root, { to, kind = 'mail', subject, body }, fe
   if (!peer) throw new Error('Unknown peer');
   if (!peer.enabled) throw new Error('Peer is switched off');
   if (!peer.allow[kind]) throw new Error(`Peer is not permitted to exchange ${kind}`);
+  if (!peer.outbound) throw new Error('Pairing is incomplete: set the token the peer gave you (nexus_peers set outbound_token)');
   const self = (await load(root)).self ?? 'nexus';
   const response = await fetcher(peer.url + '/peer/message', {
     method: 'POST', signal: AbortSignal.timeout(10000),

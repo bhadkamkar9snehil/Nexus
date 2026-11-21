@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { join } from 'node:path';
 const transport = new StdioClientTransport({ command: process.execPath, args: [join(import.meta.dirname, 'start.mjs')], stderr: 'ignore' });
 const client = new Client({ name: 'decision-smoke', version: '1' });

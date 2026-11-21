@@ -5,6 +5,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { receive, sendMessage } from './peers.mjs';
+import { emit } from './events.mjs';
 import { accepts, loadWebhookConfig } from './webhook-config.mjs';
 import { notify } from './notify.mjs';
 
@@ -41,7 +42,11 @@ export async function startWebhook(root) {
       req.on('end', async () => {
         try {
           const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          done(await receive(root, req.headers.authorization, payload, m => notify(`Message from ${m.peer}`, m.subject || m.body)));
+          done(await receive(root, req.headers.authorization, payload, m => {
+            notify(`Message from ${m.peer}`, m.subject || m.body);
+            // Minimal payload: the body stays in the mailbox (nexus_mail).
+            emit(root, { name: 'peer.message', eventId: m.id, data: { messageId: m.id, from: m.peer, kind: m.kind, subject: m.subject ?? '' } }).catch(() => {});
+          }));
         } catch { done(400); }
       });
       return;
@@ -60,6 +65,8 @@ export async function startWebhook(root) {
         const config = await loadWebhookConfig(root);
         if (!accepts(config, kind, event.project)) return done(202);
         events.unshift(event);
+        // GitLab's own delivery UUID is the stable eventId, so a redelivery deduplicates on the client.
+        emit(root, { name: 'gitlab.event', eventId: String(req.headers['x-gitlab-event-uuid'] || event.id), data: { kind, project: event.project, title: event.title } }).catch(() => {});
         if (config.notify.includes(kind)) notify(event.project || 'GitLab', event.title);
         // Forward a copy to the chosen peers; a peer that is off or offline must not fail GitLab's delivery.
         for (const to of config.forward) sendMessage(root, { to, kind: 'mail', subject: `GitLab: ${event.title}`.slice(0, 200), body: JSON.stringify(event) }).catch(() => {});

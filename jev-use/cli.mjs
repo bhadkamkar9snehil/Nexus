@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -20,7 +20,7 @@ try {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Arguments must be a JSON object');
   await client.connect(transport);
   const result = name === 'tools' ? await client.listTools()
-    : await client.callTool({ name, arguments: args }, undefined, { timeout: 150_000 });
+    : await client.callTool({ name, arguments: args }, { timeout: 150_000 });
   let output = result;
   if (name !== 'tools' && result.content?.[0]?.type === 'text') {
     try { output = JSON.parse(result.content[0].text); } catch { output = result; }

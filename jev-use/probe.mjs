@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 
@@ -19,7 +19,7 @@ const client = new Client({ name: 'shared-jev-diagnostic', version: '1.0.0' });
 async function check(name, args, summarize) {
   const start = performance.now();
   try {
-    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 135_000 });
+    const response = await client.callTool({ name, arguments: args }, { timeout: 135_000 });
     const detail = response.isError ? response.content : summarize(response.structuredContent ?? response.content);
     console.log(JSON.stringify({ tool: name, ms: Math.round(performance.now() - start), error: Boolean(response.isError), detail }));
   } catch (error) {

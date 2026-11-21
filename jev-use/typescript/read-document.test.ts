@@ -24,7 +24,7 @@ test('nexus_read_document reads sheets, pages rows and rejects unknown sheets', 
     await workbook.xlsx.writeFile(path);
     const first = await readDocument({ path, length: 3, allowedRoots: [root] });
     assert.equal(first.format, 'xlsx');
-    assert.deepEqual(first.sheets?.map(s => s.name), ['Plan', 'Notes']);
+    assert.deepEqual((first as { sheets?: { name: string }[] }).sheets?.map(s => s.name), ['Plan', 'Notes']);
     assert.equal(first.content, 'Heat\tGrade\tTonnes\t\nH1\tSAE1008\t10\t20\nH2\tSAE1008\t20\t');
     assert.equal(first.next_offset, 3);
     const rest = await readDocument({ path, offset: 3, allowedRoots: [root] });
@@ -67,7 +67,7 @@ test('nexus_read_document extracts pdf text by page and refuses other formats an
     const path = join(root, 'plan.pdf');
     await writeFile(path, pdf);
     const result = await readDocument({ path, allowedRoots: [root] });
-    assert.equal(result.total_pages, 1);
+    assert.equal((result as { total_pages?: number }).total_pages, 1);
     assert.match(result.content, /Billet schedule page one/);
     await writeFile(join(root, 'a.txt'), 'x');
     await assert.rejects(readDocument({ path: join(root, 'a.txt'), allowedRoots: [root] }), /Supported formats/);

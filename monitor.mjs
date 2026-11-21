@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { runtimeStatus } from './runtime-status.mjs';
 import { events, startWebhook, webhookPort } from './webhook.mjs';
+import { startEventDelivery } from './events-webhooks.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
@@ -109,6 +110,7 @@ createServer(async (req, res) => {
 }).listen(port, '127.0.0.1', async () => {
   console.log('Computer & Browser Use Monitor: ' + origin);
   startWebhook(import.meta.dirname).catch(e => console.error('Webhook receiver not started: ' + e.message));
+  startEventDelivery(import.meta.dirname, { log: console.error });
   const session=process.env.HARNESS_MONITOR_SESSION;
   if(session){
     const marker=new URL('./.monitor-session',import.meta.url);
