@@ -18,6 +18,10 @@ export async function handleApi(root, method, url, body, { run = runTailscale } 
         const device = net?.devices.find(d => d.ip === ip);
         return { ...p, online: device ? device.online : null, os: device?.os ?? null };
       });
+      if (url.searchParams.get('view') === 'inbox') {
+        const responder = responderState(await loadResponderConfig(root));
+        return { status: 200, json: { peers, responder } };
+      }
       return { status: 200, json: { self: { name: await selfName(root), addresses: await localAddresses(run), tailscale: Boolean(net) }, firewall: await firewall(), peers, responder: responderState(await loadResponderConfig(root)) } };
     }
     if (method === 'GET' && path === '/api/mail') {

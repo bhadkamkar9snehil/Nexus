@@ -92,13 +92,23 @@ try{
   {id:'1',box:'out',at,kind:'chat',body:'Is the demo board ready?',hop:0,read:true},
   {id:'2',box:'in',at:at+1000,kind:'chat',body:'The demo board is ready for review.',hop:1,read:false},
  ];
+ let deviceRequests=0;
  await page.route('**/api/**',async route=>{
   const url=new URL(route.request().url());
-  if(url.pathname==='/api/peers')return route.fulfill({json:fixture});
+  if(url.pathname==='/api/peers'){
+   if(url.searchParams.get('view')==='inbox')return route.fulfill({json:{peers:[device],responder}});
+   deviceRequests++;
+   return route.fulfill({json:fixture});
+  }
   if(url.pathname==='/api/mail')return route.fulfill({json:url.searchParams.has('summary')
    ? {threads:[{peer:device.name,unread,latest:{at:at+1000,box:'in',preview:messages[1].body}}]}
    : {messages}});
-  if(url.pathname==='/api/mail/read'){unread=0;messages[1].read=true;return route.fulfill({json:{}});}
+  if(url.pathname==='/api/mail/read'){
+   const {ids}=route.request().postDataJSON();
+   for(const message of messages) if(ids.includes(message.id)) message.read=true;
+   unread=messages.filter(message=>message.box==='in'&&!message.read).length;
+   return route.fulfill({json:{}});
+  }
   if(url.pathname==='/api/mail/send'){
    const {kind,subject,body}=route.request().postDataJSON();
    assert.equal(kind,'mail');
@@ -113,9 +123,11 @@ try{
   }
   return route.abort();
  });
+ await page.getByLabel('1 unread messages',{exact:true}).waitFor();
  await go('Inbox');
- await page.getByLabel('1 unread',{exact:true}).first().waitFor();
  const search=page.getByRole('searchbox',{name:'Search inbox'});
+ await search.waitFor();
+ assert.equal(deviceRequests,0,'Inbox must not request device diagnostics');
  await search.fill('does not exist');
  await page.getByText('No matching devices').waitFor();
  await search.fill('demo board');

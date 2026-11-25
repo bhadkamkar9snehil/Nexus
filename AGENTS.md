@@ -1,6 +1,6 @@
 # Shared harness — start here
 
-This is one Windows-native automation package shared by Codex and Claude. Read [README.md](README.md) for installation, architecture, operation and limits; use [USAGE.md](USAGE.md) for exact tool contracts. The packaged [shared-harness skill](skills/shared-harness/SKILL.md) is the portable agent entry point. CLAUDE.md imports this file.
+This is one Windows-native automation package shared by Codex and Claude. Read [README.md](README.md) for installation, architecture, operation and limits; use [USAGE.md](USAGE.md) for exact tool contracts. The packaged [shared-harness skill](skills/shared-harness/SKILL.md) is the portable agent entry point; `shared_jev` also serves it over MCP (Skills extension, `skill://shared-harness/SKILL.md`). CLAUDE.md imports this file.
 
 ## Work through the installed tools
 

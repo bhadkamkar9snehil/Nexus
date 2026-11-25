@@ -44,6 +44,18 @@ Events come from the monitor host (GitLab webhooks accepted by `nexus_webhooks`,
 
 Most agent hosts do not speak the Events extension yet, so `nexus_events` exposes list and poll as a tool: `list`, and `poll` with `name`, `arguments`, `cursor`, `max_age_ms`, `max_events`. Poll with `cursor: null` once, keep the returned cursor, and repeat while `hasMore` is true.
 
+## Skills over MCP
+
+Nexus implements the MCP **Skills** extension (`io.modelcontextprotocol/skills`, SEP-2640, beta) in full, using the SDK's `@modelcontextprotocol/server/ext/skills`. Every folder under `skills\` that holds a `SKILL.md` is served as an [Agent Skill](https://agentskills.io/specification); today that is `shared-harness`. Add a folder and restart the server to publish another skill.
+
+- **Capability:** `resources` plus `extensions["io.modelcontextprotocol/skills"] = { directoryRead: true }`. The server `instructions` point to `skill://shared-harness/SKILL.md`.
+- **`skills/list`** (paginated) and **`skills/get`** (by `SKILL.md` URI, listed or not) return the entry: the verbatim frontmatter and a complete manifest of every file with its URI, `sha256:` digest and byte size, plus `resultType: "complete"`, `ttlMs` (300000) and `cacheScope` (`public`). An unknown skill is `-32602`.
+- **`resources/read`** serves each file under `skill://<skill>/<path>` (`text/markdown` for markdown), matching the published size and digest. Relative links in a skill resolve against its folder.
+- **`resources/directory/read`** lists the direct children of a skill folder or subfolder (`inode/directory` for subfolders); a file or unknown URI is `-32602`.
+- **Limits and rules:** at most 512 files and 16 MiB per skill; the folder name must equal the frontmatter `name`; symlinks and special files are skipped. An invalid skill is dropped with a warning on stderr and the other skills and all tools still serve. If `skills\` is missing, Nexus starts without the extension.
+
+A host decides whether and how to activate a served skill; reading `SKILL.md` through `resources/read` does not activate it. Hosts that do not implement the extension see ordinary resources, so the same skill is still installed locally by `Install-Skills.ps1`.
+
 ## Invoke without writing a script
 
 ```powershell

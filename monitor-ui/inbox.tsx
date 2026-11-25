@@ -6,7 +6,7 @@ import { Chip, Kind, Msg, Peer, Summary, api, describe, field, peerStatus, time,
 
 // A messaging page: the list and the thread fill the window, the thread scrolls inside, the composer stays put.
 export function InboxView({ peer, open }: { peer: string; open: (name: string) => void }) {
-  const { info, error } = usePeerInfo();
+  const { info, error } = usePeerInfo('inbox');
   const [query, setQuery] = useState('');
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [thread, setThread] = useState<{ peer: string; messages: Msg[] }>();

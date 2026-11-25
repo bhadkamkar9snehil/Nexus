@@ -187,6 +187,8 @@ flowchart LR
 
 The driver uses `\\.\pipe\cua-driver` in the interactive Windows session. Browser profiles and named sessions are local and separate from personal browser profiles. Named Playwright sessions have cross-process locks; `session_busy` means the session is in use, not permission to delete its lock. When an exact `jev_desktop` target is minimized, Nexus restores it without taking focus and continues; a visible window does not by itself prove the correct browser profile or authentication. Serialize desktop and legacy CDP requests across agents; their arbitration is not complete. Use an existing API for deterministic operations and Nexus tools for the supported computer-use and search tasks.
 
+`shared_jev` also publishes its packaged agent skill over MCP using the official Skills extension (`io.modelcontextprotocol/skills`): a client that implements it can list, verify and read `shared-harness` straight from the server, with nothing extra to install. `Install-Skills.ps1` still copies the same skill to Codex and Claude Code for hosts that do not. See [USAGE.md](USAGE.md#skills-over-mcp) for the protocol surface.
+
 ## Monitor and day-to-day operation
 
 Open the desktop EXE or use a browser at `http://127.0.0.1:8769/`. From the harness folder:

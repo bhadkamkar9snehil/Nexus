@@ -6,8 +6,9 @@ import { appendFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { Server } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 import { attachEvents } from './events-extension.js';
 import { attachClaudeChannel, CHANNEL_INSTRUCTIONS } from './channel.js';
 import { jevClient, toolKey, withToolKey } from './key-routing.js';
@@ -155,9 +156,18 @@ async function desktopTask(goal: string, app: string, expect: string, text: stri
   return result('step limit');
 }
 
+// Skills over MCP (io.modelcontextprotocol/skills, SEP-2640): every folder under skills/ is served as an Agent Skill —
+// skills/list, skills/get, resources/read of skill:// files with per-file SHA-256 digests, and resources/directory/read.
+// One catalog serves every connection. A missing or invalid skills folder is reported and the tools still serve.
+const skills = await loadSkills(join(root, 'skills'), { cacheHint: { ttlMs: 300_000, cacheScope: 'public' } })
+  .catch((error: unknown) => { console.error('WARNING: Skills over MCP is unavailable: ' + String(error)); return undefined; });
+const SKILL_INSTRUCTIONS = 'Nexus ships its operating guide as a skill. Start with skill://shared-harness/SKILL.md (confirm with skills/get, read with resources/read); it routes each task to the right tool.';
+
 function createServer() {
 const registry = createCoreRegistry();
-const server = new Server({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: CHANNEL_INSTRUCTIONS });
+const mcp = new McpServer({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: skills ? CHANNEL_INSTRUCTIONS + ' ' + SKILL_INSTRUCTIONS : CHANNEL_INSTRUCTIONS });
+const server = mcp.server;
+skills?.attach(mcp);
 attachEvents(server, root);
 attachClaudeChannel(server, root);
 server.setRequestHandler('tools/list', async () => ({ tools: registry.list() }));
@@ -213,6 +223,6 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
     return { isError: true, content: [{ type: 'text', text: String(error) }] };
   }
 }));
-return server;
+return mcp;
 }
 serveStdio(() => createServer());
