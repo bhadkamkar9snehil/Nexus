@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
-import { readFile, open, writeFile } from 'node:fs/promises';
-import { execFile, spawn } from 'node:child_process';
+import { readFile, open } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { runtimeStatus } from './runtime-status.mjs';
@@ -34,7 +34,8 @@ let runtimeCheck;
 let runtimeAt=0;
 const assets = Object.fromEntries(['app.js','app.css','geist.woff2','geist-mono.woff2'].map(name => ['/assets/' + name, new URL('./monitor-ui/dist/' + name, import.meta.url)]));
 
-const html = await readFile(new URL('./monitor.html', import.meta.url));
+const html = await readFile(new URL('./desktop.html', import.meta.url));
+const managed = process.env.HARNESS_MONITOR_MANAGED === '1';
 const log = new URL('./runs.jsonl', import.meta.url);
 
 async function recentRuns() {
@@ -84,7 +85,7 @@ createServer(async (req, res) => {
   }
   if (req.method !== 'GET') return send(403, 'text/plain', 'Forbidden');
   if (req.url === '/version') return send(200, 'application/json', JSON.stringify(await versionInfo(import.meta.dirname)));
-  if (req.url === '/monitor-status') return send(200, 'application/json', JSON.stringify({ application: 'shared-computer-use-monitor', root: import.meta.dirname, pid: process.pid,managed:process.env.HARNESS_MONITOR_MANAGED==='1' }));
+  if (req.url === '/monitor-status') return send(200, 'application/json', JSON.stringify({ application: 'shared-computer-use-monitor', root: import.meta.dirname, pid: process.pid, managed }));
   if (req.url === '/runtime') {
     try {
       if (!runtimeCheck || Date.now()-runtimeAt>30000) {
@@ -104,7 +105,12 @@ createServer(async (req, res) => {
       }))}));
     } catch { return send(503, 'text/plain', 'Terminal sessions unavailable.'); }
   }
-  if (new URL(req.url, origin).pathname === '/') return send(200, 'text/html; charset=utf-8', html);
+  if (new URL(req.url, origin).pathname === '/') {
+    if (managed && req.headers['user-agent']?.trim().split(' ').at(-1) !== 'NexusDesktop/1.0') {
+      return send(404, 'text/plain; charset=utf-8', 'Open Nexus from the Windows Start menu.');
+    }
+    return send(200, 'text/html; charset=utf-8', html);
+  }
   if (req.url === '/favicon.ico') return send(204, 'image/x-icon', '');
   if (Object.hasOwn(assets, req.url)) {
     const type = req.url.endsWith('.js') ? 'text/javascript' : req.url.endsWith('.css') ? 'text/css' : 'font/woff2';
@@ -136,15 +142,4 @@ createServer(async (req, res) => {
   startEventDelivery(import.meta.dirname, { log: console.error });
   startPeerDiscovery(import.meta.dirname, { log: console.log });
   startAutoUpdate(import.meta.dirname, { log: console.error });
-  const session=process.env.HARNESS_MONITOR_SESSION;
-  if(session){
-    const marker=new URL('./.monitor-session',import.meta.url);
-    let previous='';try{previous=await readFile(marker,'utf8');}catch{}
-    if(previous!==session){
-      const child=spawn('explorer.exe',[origin],{windowsHide:true,detached:true,stdio:'ignore'});
-      child.on('error',()=>console.error('Could not open the monitor browser. Open the local monitor URL.'));
-      child.unref();
-      await writeFile(marker,session).catch(()=>console.error('Could not record the monitor sign-in browser launch.'));
-    }
-  }
 });

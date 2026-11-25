@@ -40,7 +40,7 @@ $env:PATH = $runtime + ';' + $env:PATH
 & (Join-Path $PSScriptRoot 'Nexus-Takeover.ps1') -TargetDir $PSScriptRoot
 
 # Mandatory: managed monitor task and HTTP health. Copied files alone are not a successful install.
-& (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup -NoBrowserAtSignIn:$NoBrowserAtSignIn
+& (Join-Path $PSScriptRoot 'Monitor.ps1') InstallStartup
 $task = Get-ScheduledTask -TaskName 'SharedHarness-Monitor' -ErrorAction Stop
 $health = Invoke-RestMethod 'http://127.0.0.1:8769/monitor-status' -TimeoutSec 5
 if ($task.State -ne 'Running' -or $health.application -ne 'shared-computer-use-monitor' -or

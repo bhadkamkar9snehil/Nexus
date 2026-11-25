@@ -7,11 +7,17 @@ const out=new URL('../docs/screenshots/',import.meta.url);
 const origin=`http://127.0.0.1:${Number(process.env.NEXUS_MONITOR_PORT || 8769)}`;
 await mkdir(out,{recursive:true});
 const browser=await chromium.launch({channel:'chrome',headless:true});
-const page=await browser.newPage({viewport:{width:1600,height:1100}});
+const page=await browser.newPage({viewport:{width:1600,height:1100},userAgent:'Nexus smoke NexusDesktop/1.0'});
 const errors=[];let injectingFailure=false;page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'&&!injectingFailure)errors.push(m.text());});
 const screenshot=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:fileURLToPath(new URL(name,out)),fullPage:true});};
 const go=async name=>{await page.getByRole('button',{name,exact:true}).click();await page.getByRole('heading',{name,exact:true}).waitFor();};
 try{
+ const runtime=await (await page.request.get(origin+'/monitor-status')).json();
+ if(runtime.managed){
+  const standalone=await page.request.get(origin+'/',{headers:{'User-Agent':'Standalone browser'}});
+  assert.equal(standalone.status(),404);
+  assert.match(await standalone.text(),/Open Nexus from the Windows Start menu/);
+ }
  await page.goto(origin+'/?theme=light');
  await page.getByText('Monitor online',{exact:true}).waitFor();
  await page.getByRole('heading',{name:'Recorded calls',exact:true}).waitFor();

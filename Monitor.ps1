@@ -1,4 +1,5 @@
-param([ValidateSet('Start','Stop','Status','InstallStartup','Run','Open')][string]$Action='Start',[switch]$OpenAtSignIn,[switch]$NoBrowserAtSignIn)
+param([ValidateSet('Start','Stop','Status','InstallStartup','Run')][string]$Action='Start',[switch]$OpenAtSignIn,[switch]$NoBrowserAtSignIn)
+# Accept the old switches when migrating existing tasks. The runtime never opens a browser.
 $ErrorActionPreference='Stop'
 $url='http://127.0.0.1:8769'
 $name='SharedHarness-Monitor'
@@ -17,7 +18,6 @@ if($task -and $task.Actions.Arguments -notlike ('*-File "'+$script+'" *')){throw
 if($Action -eq 'InstallStartup'){
     $user=[Security.Principal.WindowsIdentity]::GetCurrent().Name
     $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$script+'" Run'
-    if (-not $NoBrowserAtSignIn) { $arguments += ' -OpenAtSignIn' }
     $actionObject=New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $PSScriptRoot
     $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user
     $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
@@ -46,11 +46,6 @@ if($Action -eq 'Stop'){
 if($Action -eq 'Run'){
     if($running){exit 0}
     $env:HARNESS_MONITOR_MANAGED='1'
-    if($OpenAtSignIn){
-        $boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().Ticks
-        $logonGroup=([Security.Principal.WindowsIdentity]::GetCurrent().Groups | Where-Object {$_.Value -like 'S-1-5-5-*'} | Select-Object -First 1).Value
-        $env:HARNESS_MONITOR_SESSION="$boot-$logonGroup-$([Diagnostics.Process]::GetCurrentProcess().SessionId)"
-    }
     for($attempt=0;$attempt -lt 999;$attempt++){
         $child=Start-Process -FilePath $node -ArgumentList ('"'+(Join-Path $PSScriptRoot 'monitor.mjs')+'"') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $PSScriptRoot 'monitor.log') -RedirectStandardError (Join-Path $PSScriptRoot 'monitor-error.log') -Wait -PassThru
         Add-Content -LiteralPath (Join-Path $PSScriptRoot 'monitor-host.log') -Value ((Get-Date -Format s)+' monitor exited '+$child.ExitCode+'; restarting in3s, attempt '+($attempt+1))
@@ -72,6 +67,5 @@ if(-not $running){
     }
 }
 if($Action -eq 'InstallStartup' -and (-not $running.managed -or (Get-ScheduledTask -TaskName $name).State -ne 'Running')){throw 'Monitor responded but its managed sign-in task is not running. Inspect task ownership and monitor logs.'}
-if($Action -eq 'Open'){Start-Process $url}
 "Monitor ready: $url (PID $($running.pid))"
 exit 0

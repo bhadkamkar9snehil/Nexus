@@ -190,11 +190,11 @@ Fit ≥0.7 permits a recommendation. Verification ≤0.3 returns not_satisfied, 
 
 ## Monitor controls and state
 
-Monitor.ps1 supports Start, Open, Status, Stop and InstallStartup. Run is the hidden task's internal entry point. Start uses the registered task if present, otherwise a hidden host. InstallStartup preserves another installation's task, migrates this installation's known definition while stopped, and enables restart recovery. Stop is intentional and suppresses recovery for that stop; sign-in startup remains installed until unregistered.
+Monitor.ps1 supports Start, Status, Stop and InstallStartup. Run is the hidden task's internal entry point. Start uses the registered task if present, otherwise a hidden host. InstallStartup preserves another installation's task, migrates this installation's known definition while stopped, and enables restart recovery. Stop is intentional and suppresses recovery for that stop. Open the interface from **Nexus Harness** in the Windows Start menu.
 
 InstallStartup waits up to 60 seconds for the endpoint and verifies the managed flag and running task. If a server is already running outside the task, stop it with Monitor.ps1 Stop and run InstallStartup again. A timeout identifies the endpoint phase and task result; inspect the task history and monitor-error.log. These checks do not exercise search, Jev authentication or a browser task.
 
-Task Scheduler owns the long-running hidden host. The host waits for Node to exit and restarts an unexpected exit after3s, at most999times. The browser-open marker is scoped by boot/logon/session so recovery does not open repeated tabs. Stop terminates both the owned host and server, including the manual fallback, rather than triggering recovery. The machine must be on and the user signed in. No foreground-only terminal session or separate monitor service is required.
+Task Scheduler owns the long-running hidden host. The host waits for Node to exit and restarts an unexpected exit after three seconds. Stop terminates both the owned host and server, including the manual fallback. The machine must be on and the user signed in. The installed interface is served to the desktop WebView, and the loopback API remains available for health checks and integrations.
 
 The server validates the loopback Host and allows read-only GET routes. Call metadata refreshes every2s; runtime observations are cached30s. Up to500 calls from a256KiB log tail are retained for display. Column filtering/pagination operate on that bounded recorded window, not all historical runs. Internal monitor health polls suppress only their own search-status run events; agent-invoked status calls are still instrumented.
 

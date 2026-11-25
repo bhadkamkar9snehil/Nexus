@@ -14,14 +14,31 @@ public partial class MainWindow : Window
     private string _root = AppContext.BaseDirectory;
     private SettingsHost? _settings;
     private UpdateHost? _updates;
-    private System.Windows.Forms.NotifyIcon? _tray;
+    private NexusView _view;
     private bool _messaging;
 
-    public MainWindow()
+    internal MainWindow(NexusView view)
     {
+        _view = view;
         InitializeComponent();
         Loaded += OnLoaded;
-        Closed += (_, _) => _tray?.Dispose();
+    }
+
+    private Uri ViewAddress() => new(Address + (_view switch
+    {
+        NexusView.Inbox => "#/inbox", NexusView.Updates => "#/updates", _ => ""
+    }));
+
+    internal void OpenView(NexusView view)
+    {
+        if (view != NexusView.Current)
+        {
+            _view = view;
+            if (Browser.CoreWebView2 is not null) Browser.Source = ViewAddress();
+        }
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e) => await ConnectAsync();
@@ -42,7 +59,8 @@ public partial class MainWindow : Window
     // Looks for a new release on start, every 30 minutes, and right away when GitLab pushes a release or main pipeline event.
     private async Task WatchUpdatesAsync()
     {
-        if (_updates is null) return;
+        var updates = _updates;
+        if (updates is null) return;
         var lastEvent = "";
         var due = DateTime.MinValue;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
@@ -62,12 +80,10 @@ public partial class MainWindow : Window
                 due = DateTime.Now.AddMinutes(30);
                 try
                 {
-                    if (await _updates.CheckAsync() is { } tag)
+                    if (await updates.CheckAsync() is { } tag)
                     {
-                        _tray ??= new System.Windows.Forms.NotifyIcon { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Visible = true, Text = "Nexus Harness" };
-                        _tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(() => { Show(); Activate(); Browser.CoreWebView2.Navigate(Address + "#/updates"); });
-                        _tray.ShowBalloonTip(10000, "Nexus update available", $"Version {tag.TrimStart('v')} is ready. Open Updates to install it.", System.Windows.Forms.ToolTipIcon.Info);
                         Browser.CoreWebView2?.PostWebMessageAsJson(new JsonObject { ["type"] = "updateAvailable", ["tag"] = tag }.ToJsonString());
+                        NexusNotifications.Show("Nexus update available", $"Version {tag.TrimStart('v')} is ready to install.", NexusView.Updates);
                     }
                 }
                 catch { /* offline or not authorized yet; the Updates page explains */ }
@@ -107,7 +123,10 @@ public partial class MainWindow : Window
             Browser.CoreWebView2.NavigationStarting += RestrictNavigation;
             if (!_messaging) { Browser.CoreWebView2.WebMessageReceived += OnWebMessage; _messaging = true; }
             Browser.CoreWebView2.NewWindowRequested += (_, args) => args.Handled = true;
-            Browser.Source = new Uri(Address);
+            var settings = Browser.CoreWebView2.Settings;
+            if (!settings.UserAgent.EndsWith("NexusDesktop/1.0", StringComparison.Ordinal))
+                settings.UserAgent = (settings.UserAgent + " NexusDesktop/1.0").Trim();
+            Browser.Source = ViewAddress();
             Unavailable.Visibility = Visibility.Collapsed;
             Browser.Visibility = Visibility.Visible;
         }

@@ -181,25 +181,26 @@ flowchart LR
   M --> L[Local run metadata]
   M --> T[Detached terminal session workers]
   T --> W[Windows shells and processes]
-  L --> U[Local monitor]
-  E[Optional desktop EXE] --> U
+  L --> U[Background Nexus runtime]
+  E[Nexus desktop app] --> U
 ```
 
 The driver uses `\\.\pipe\cua-driver` in the interactive Windows session. Browser profiles and named sessions are local and separate from personal browser profiles. Named Playwright sessions have cross-process locks; `session_busy` means the session is in use, not permission to delete its lock. When an exact `jev_desktop` target is minimized, Nexus restores it without taking focus and continues; a visible window does not by itself prove the correct browser profile or authentication. Serialize desktop and legacy CDP requests across agents; their arbitration is not complete. Use an existing API for deterministic operations and Nexus tools for the supported computer-use and search tasks.
 
 `shared_jev` also publishes its packaged agent skill over MCP using the official Skills extension (`io.modelcontextprotocol/skills`): a client that implements it can list, verify and read `shared-harness` straight from the server, with nothing extra to install. `Install-Skills.ps1` still copies the same skill to Codex and Claude Code for hosts that do not. See [USAGE.md](USAGE.md#skills-over-mcp) for the protocol surface.
 
-## Monitor and day-to-day operation
+## Desktop app and background runtime
 
-Open the desktop EXE or use a browser at `http://127.0.0.1:8769/`. From the harness folder:
+Open **Nexus Harness** from the Windows Start menu. The installed interface opens only in the desktop app. From the harness folder, these commands check or start the background runtime:
 
 ```powershell
-.\Monitor.ps1 Open
 .\Monitor.ps1 Status
 .\Harness.ps1 monitor
 ```
 
-The monitor shows recorded runs, timings, token and estimated-cost information, the tool catalog, and runtime health. It reads a bounded recent metadata window: up to 500 calls from a 256 KiB log tail. Refresh and component observations have different intervals. Missing usage is unknown, not zero; the historical cost estimate is not an invoice. Direct Cua actions outside the wrapper are not necessarily recorded.
+The desktop app shows recorded runs, timings, token and estimated-cost information, the tool catalog, and runtime health. It reads up to 500 calls from a 256 KiB log tail. Refresh and component observations have different intervals. Missing usage is unknown. Direct Cua actions outside the wrapper may not appear in recorded calls.
+
+Incoming peer messages, configured GitLab events, and available updates use native Windows notifications under **Nexus**. The **Open Inbox** and **Open Updates** actions bring the desktop app to the relevant view. Windows notification settings control how Nexus alerts are displayed.
 
 | Capability catalog | Runtime health |
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
@@ -224,7 +225,7 @@ Feature-branch pushes use the B19CL3PC runner for `validate-branch`. Newer pushe
 
 The screenshots show a particular local run; counts and health differ on each machine. [UI provenance](monitor-ui/PROVENANCE.md) describes the reused components.
 
-`SharedHarness-Monitor` starts its hidden host at user sign-in. The host restarts an unexpected server exit after three seconds, up to its configured limit; the default browser opens once per sign-in session, not after each recovery. The machine must be on and the user signed in. `Monitor.ps1 Start` starts or reuses the monitor; `Open` also opens a browser. An intentional stop suppresses recovery for that stop while preserving the next sign-in task:
+`SharedHarness-Monitor` starts the hidden runtime at user sign-in and restarts an unexpected server exit after three seconds. It supplies the local API, webhooks, peer mail and updates. Status checks continue to use the loopback API. An intentional stop suppresses recovery for that stop while preserving the next sign-in task:
 
 ```powershell
 .\Monitor.ps1 Stop

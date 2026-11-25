@@ -16,7 +16,7 @@ const githubRelease = (tag: string, digest = `sha256:${sha}`) => ({
     browser_download_url: `https://github.com/bhadkamkar9snehil/Nexus/releases/download/${tag}/Nexus-Harness-Setup-${tag.slice(1)}-windows-x64.exe`, digest }],
 });
 
-async function decide(options: { installed?: string; idle?: number; running?: boolean; autoUpdate?: boolean; releases?: unknown[] }) {
+async function decide(options: { installed?: string; idle?: number; running?: boolean; installerRunning?: boolean; autoUpdate?: boolean; releases?: unknown[] }) {
   const dir = await mkdtemp(join(tmpdir(), 'nexus-auto-update-'));
   await mkdir(join(dir, 'Nexus'), { recursive: true });
   if (options.autoUpdate === false) await writeFile(join(dir, 'Nexus', 'updates.json'), '{"autoUpdate":false}');
@@ -24,8 +24,17 @@ async function decide(options: { installed?: string; idle?: number; running?: bo
   await writeFile(releases, JSON.stringify(options.releases ?? [release('v1.17.0'), release('v1.16.1')]));
   const runs = join(dir, 'runs.json');
   await writeFile(runs, JSON.stringify(options.running ? [{ status: 'running', started: Date.now() - 5000 }] : [{ status: 'passed', started: Date.now() - 600000 }]));
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-DryRun', '-ReleasesJson', releases, '-RunsJson', runs,
-    '-InstalledVersion', options.installed ?? '1.16.1', '-IdleSeconds', String(options.idle ?? 900)], { encoding: 'utf8', env: { ...process.env, LOCALAPPDATA: dir } });
+  const wrapper = join(dir, 'fixture.ps1');
+  await writeFile(wrapper, [
+    "function Get-Process { if ($env:NEXUS_TEST_INSTALLER_RUNNING -eq '1') { [pscustomobject]@{ Name = 'Nexus-Harness-Setup-fixture' } } }",
+    '& $env:NEXUS_TEST_UPDATER @args',
+    'exit $LASTEXITCODE',
+  ].join('\n'));
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper, '-DryRun', '-ReleasesJson', releases, '-RunsJson', runs,
+    '-InstalledVersion', options.installed ?? '1.16.1', '-IdleSeconds', String(options.idle ?? 900)], {
+    encoding: 'utf8',
+    env: { ...process.env, LOCALAPPDATA: dir, NEXUS_TEST_UPDATER: script, NEXUS_TEST_INSTALLER_RUNNING: options.installerRunning ? '1' : '0' },
+  });
   return JSON.parse(out.trim());
 }
 
@@ -39,6 +48,7 @@ test('the owner at the keyboard or a running tool call defers the install', { sk
   assert.match((await decide({ idle: 20 })).reason, /owner is active/);
   assert.equal((await decide({ idle: 20 })).action, 'wait');
   assert.match((await decide({ running: true })).reason, /tool call is running/);
+  assert.match((await decide({ installerRunning: true })).reason, /installer is already running/);
 });
 
 test('public GitHub release is eligible without private GitLab credentials', { skip: process.platform !== 'win32' }, async () => {

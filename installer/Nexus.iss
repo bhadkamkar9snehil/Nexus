@@ -36,12 +36,21 @@ Name: "optionalsearch"; Description: "Install UFFS search service (may request a
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "desktop,installer,.git*"
 Source: "{#PayloadDir}\Nexus.Setup.exe"; Flags: dontcopy
 
+[InstallDelete]
+Type: files; Name: "{app}\monitor.html"
+Type: files; Name: "{app}\.monitor-session"
+
 [Icons]
-Name: "{group}\Nexus Harness"; Filename: "{app}\Nexus.Desktop.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Nexus Harness"; Filename: "{app}\Nexus.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Nexus Harness"; Filename: "{app}\Nexus.Desktop.exe"; WorkingDir: "{app}"; AppUserModelID: "Nexus.Harness"; AppUserModelToastActivatorCLSID: "E62E3398-958A-4A2A-8D4A-DA27675F96AC"
+Name: "{autodesktop}\Nexus Harness"; Filename: "{app}\Nexus.Desktop.exe"; WorkingDir: "{app}"; AppUserModelID: "Nexus.Harness"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Nexus Harness"; ValueData: """{app}\Nexus.Desktop.exe"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\Nexus.Harness"; ValueType: string; ValueName: "DisplayName"; ValueData: "Nexus"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\nexus-harness"; ValueType: string; ValueData: "URL:Nexus"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\nexus-harness"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\nexus-harness\DefaultIcon"; ValueType: string; ValueData: """{app}\Nexus.Desktop.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\nexus-harness\shell\open\command"; ValueType: string; ValueData: """{app}\Nexus.Desktop.exe"" ""%1"""
 
 [Run]
 Filename: "{app}\Nexus.Desktop.exe"; Description: "Open Nexus Harness"; Flags: nowait postinstall skipifsilent; Check: SetupCompleted

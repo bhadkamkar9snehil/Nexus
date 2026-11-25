@@ -64,7 +64,7 @@ export async function startWebhook(root, options = {}) {
         try {
           const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           done(await receive(root, req.headers.authorization, payload, m => {
-            notify(`Message from ${m.peer}`, m.subject || m.body);
+            notify(`Message from ${m.peer}`, m.subject || m.body, 'inbox');
             // Minimal payload: the body stays in the mailbox (nexus_mail).
             emit(root, { name: 'peer.message', eventId: m.id, data: { messageId: m.id, from: m.peer, kind: m.kind, subject: m.subject ?? '' } }).catch(() => {});
             options.onMessage?.(m);
