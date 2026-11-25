@@ -12,10 +12,10 @@ export const host=():Host|undefined=>(window as any).chrome?.webview;
 type Info={root:string;keySaved:boolean;tools:string[];keys:string[];mapping:Record<string,string>};
 export type Reply={ok:boolean;message?:string;info?:Info;[k:string]:any};
 let seq=0;
-export const call=(msg:Record<string,unknown>):Promise<Reply>=>new Promise(resolve=>{
+export const call=(msg:Record<string,unknown>,timeout=300000):Promise<Reply>=>new Promise(resolve=>{
  const h=host();if(!h){resolve({ok:false,message:'Key and setup actions need the Nexus desktop app.'});return;}
  const id=++seq;const done=(e:{data:any})=>{if(e.data?.id!==id)return;h.removeEventListener('message',done);clearTimeout(t);resolve(e.data);};
- const t=setTimeout(()=>{h.removeEventListener('message',done);resolve({ok:false,message:'The desktop app did not respond.'});},300000);
+ const t=setTimeout(()=>{h.removeEventListener('message',done);resolve({ok:false,message:'The desktop app did not respond.'});},timeout);
  h.addEventListener('message',done);h.postMessage({...msg,id});
 });
 

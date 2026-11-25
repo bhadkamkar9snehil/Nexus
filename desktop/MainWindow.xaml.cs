@@ -34,7 +34,7 @@ public partial class MainWindow : Window
         using var request = JsonDocument.Parse(e.WebMessageAsJson);
         var type = request.RootElement.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
         var reply = type.StartsWith("updates.", StringComparison.Ordinal) && _updates is not null
-            ? await _updates.HandleAsync(request.RootElement)
+            ? await _updates.HandleAsync(request.RootElement, progress => Browser.CoreWebView2?.PostWebMessageAsJson(progress.ToJsonString()))
             : await _settings.HandleAsync(request.RootElement);
         Browser.CoreWebView2.PostWebMessageAsJson(reply.ToJsonString());
     }

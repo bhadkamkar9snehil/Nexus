@@ -161,6 +161,50 @@ try{
  await search.waitFor();
  await page.setViewportSize({width:1600,height:1100});
  await page.unroute('**/api/**');
+ await page.evaluate(()=>{
+  const listeners=new Set();
+  const deliver=data=>listeners.forEach(listener=>listener({data}));
+  window.chrome.webview={
+   addEventListener:(_,listener)=>listeners.add(listener),
+   removeEventListener:(_,listener)=>listeners.delete(listener),
+   postMessage:request=>{
+    if(request.type==='updates.list'){
+     deliver({id:request.id,ok:true,current:'1.19.1',autoUpdate:true,autoUpdateAvailable:true,
+      releases:[{tag:'v1.19.2',date:'',notes:'',installable:true,newer:true,isCurrent:false}]});
+    }
+    if(request.type==='updates.install'){
+     window.mockUpdateProgress=(message,percent)=>deliver({type:'updateProgress',tag:request.tag,message,percent});
+     window.mockUpdateFailure=()=>deliver({id:request.id,ok:false,message:'Setup did not complete.'});
+    }
+   }
+  };
+ });
+ await go('Updates');
+ const update=page.getByRole('button',{name:'Update now',exact:true});
+ await update.waitFor();
+ const updateButtonStyle=await update.evaluate(element=>{
+  const style=getComputedStyle(element);
+  return {foreground:style.color,background:style.backgroundColor,height:element.getBoundingClientRect().height};
+ });
+ assert.notEqual(updateButtonStyle.foreground,updateButtonStyle.background);
+ assert.notEqual(updateButtonStyle.background,'rgba(0, 0, 0, 0)');
+ assert.ok(updateButtonStyle.height>=32);
+ await update.click();
+ await page.getByRole('button',{name:'Update in progress',exact:true}).waitFor();
+ assert.ok(await page.getByRole('button',{name:'Check now',exact:true}).isDisabled());
+ await page.evaluate(()=>window.mockUpdateProgress('Downloading the installer',42));
+ const progress=page.getByRole('progressbar',{name:'Update progress'});
+ await page.getByText('42%',{exact:true}).waitFor();
+ assert.equal(await progress.getAttribute('value'),'42');
+ await page.evaluate(()=>window.mockUpdateProgress('Verifying the installer checksum',null));
+ await page.getByText(/Verifying the installer checksum/).waitFor();
+ assert.equal(await progress.getAttribute('value'),null);
+ await page.evaluate(()=>window.mockUpdateProgress('Follow the Nexus Setup window to continue',null));
+ await page.getByText(/Follow the Nexus Setup window/).waitFor();
+ await page.evaluate(()=>window.mockUpdateFailure());
+ await page.getByRole('alert').filter({hasText:'Setup did not complete.'}).waitFor();
+ assert.ok(await update.isEnabled());
+ await page.evaluate(()=>delete window.chrome.webview);
  await go('Settings');await page.getByRole('button',{name:'Use #a78bfa',exact:true}).click();
  assert.equal(await page.getByRole('button',{name:'Use #a78bfa',exact:true}).getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'Use dark theme',exact:true}).click();

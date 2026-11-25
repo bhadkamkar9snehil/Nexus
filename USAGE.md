@@ -1,6 +1,6 @@
 # Operator and tool reference
 
-For an extracted deployment ZIP, run `Nexus.Setup.exe repair "<installation directory>"` from Windows. The same compiled helper handles wizard installation and desktop repair. Interactive wizard takeover can request administrator approval when Task Scheduler denies access. Setup diagnostics are written to `%LOCALAPPDATA%\Nexus\setup.log`.
+For an extracted deployment ZIP, run `Nexus.Setup.exe repair "<installation directory>"` from Windows. The same compiled helper handles wizard installation and desktop repair. **Updates → Update now** shows the download and checksum check, then opens the Setup wizard. If Task Scheduler denies takeover, the wizard offers **Run as administrator** for that step. Setup diagnostics are written to `%LOCALAPPDATA%\Nexus\setup.log` and manual update installer output to `%LOCALAPPDATA%\Nexus\manual-update.log`.
 
 
 [README.md](README.md) is the complete team entry point: installation, screenshots, architecture, startup, credentials, troubleshooting, updates and acceptance limits. [AGENTS.md](AGENTS.md) defines agent behavior. This page contains exact invocation contracts; it is not a second installation guide.

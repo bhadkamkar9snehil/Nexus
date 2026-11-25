@@ -75,10 +75,23 @@ begin
   else begin
     // Elevate only takeover, so per-user setup still runs as the original user.
     if (ResultCode = 5) and (not WizardSilent) then begin
-      Params := 'preflight "' + ExpandConstant('{app}') + '" --elevated';
-      if not ShellExec('runas', ExpandConstant('{tmp}\Nexus.Setup.exe'),
-        Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-        ResultCode := 5;
+      if SuppressibleTaskDialogMsgBox('Nexus Setup needs administrator approval',
+        'Windows blocked access to the existing Nexus monitor task. Run the setup helper as administrator to transfer that task and continue this installation.',
+        mbConfirmation, MB_YESNO, ['Run as administrator', 'Cancel update'], IDYES, IDNO) = IDYES then begin
+        Params := 'preflight "' + ExpandConstant('{app}') + '" --elevated';
+        if not ShellExec('runas', ExpandConstant('{tmp}\Nexus.Setup.exe'),
+          Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+          Result := 'Administrator approval was not granted. Nexus Setup did not transfer the monitor task.';
+          Exit;
+        end;
+        if ResultCode <> 0 then begin
+          Result := 'The administrator retry could not transfer the Nexus monitor. Check %LOCALAPPDATA%\Nexus\setup.log.';
+          Exit;
+        end;
+      end else begin
+        Result := 'The update was canceled before transferring the monitor task.';
+        Exit;
+      end;
     end;
     if ResultCode <> 0 then begin
       if LoadStringFromFile(ResultFile, Detail) then Result := String(Detail)
@@ -91,6 +104,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer; Params: String;
 begin
   if CurStep = ssPostInstall then begin
+    WizardForm.StatusLabel.Caption := 'Starting Nexus and verifying the monitor...';
     Params := 'provision "' + ExpandConstant('{app}') + '"';
     if not WizardSilent then begin
       if IsTaskSelected('optionalbrowser') then Params := Params + ' --browser';

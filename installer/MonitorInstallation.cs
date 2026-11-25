@@ -210,7 +210,9 @@ internal sealed class MonitorInstallation(string root, string logDirectory)
             action.Path = PowerShell;
             action.Arguments = $"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{Path.Combine(root, "Monitor.ps1")}\" Run";
             action.WorkingDirectory = root;
-            existing = Folder.RegisterTaskDefinition(TaskName, definition, 2, identity.Name, null, InteractiveLogon, null);
+            // Keep the same user able to transfer the task from a non-elevated update.
+            var taskSecurity = $"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;{identity.User!.Value})";
+            existing = Folder.RegisterTaskDefinition(TaskName, definition, 2, identity.Name, null, InteractiveLogon, taskSecurity);
             existing.Run(null);
         }
 

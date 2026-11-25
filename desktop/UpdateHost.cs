@@ -25,7 +25,6 @@ public sealed partial class UpdateHost(string root)
     private static string StateFile => Path.Combine(Folder, "updates.json");
     private readonly string _root = root;
     private readonly System.Threading.SemaphoreSlim _installGate = new(1, 1);
-    private volatile bool _installerStarted;
 
     public string? NotifiedTag { get; private set; }
 
@@ -112,7 +111,7 @@ public sealed partial class UpdateHost(string root)
         return latest.Tag;
     }
 
-    public async Task<JsonObject> HandleAsync(JsonElement request)
+    public async Task<JsonObject> HandleAsync(JsonElement request, Action<JsonObject> notify)
     {
         var id = request.TryGetProperty("id", out var i) ? i.GetInt32() : 0;
         string Text(string n) => request.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
@@ -144,8 +143,14 @@ public sealed partial class UpdateHost(string root)
                     reply["message"] = "Token saved for this Windows account.";
                     break;
                 case "updates.install":
+                    void Progress(string message, int? percent = null) => notify(new JsonObject
+                    {
+                        ["type"] = "updateProgress", ["tag"] = Text("tag"), ["message"] = message,
+                        ["percent"] = percent
+                    });
+                    Progress("Looking up the release");
                     var release = (await ReleasesAsync()).FirstOrDefault(r => r.Tag == Text("tag")) ?? throw new InvalidOperationException("That release was not found.");
-                    reply["message"] = await InstallAsync(release);
+                    reply["message"] = await InstallAsync(release, Progress);
                     break;
                 case "updates.autoUpdate":
                     if (!IsInstalledHere()) throw new InvalidOperationException("Automatic updates require an installed copy of Nexus.");
@@ -166,18 +171,17 @@ public sealed partial class UpdateHost(string root)
         return reply;
     }
 
-    private async Task<string> InstallAsync(Release release)
+    private async Task<string> InstallAsync(Release release, Action<string, int?> progress)
     {
-        if (!await _installGate.WaitAsync(0)) return "An update is already in progress.";
+        if (!await _installGate.WaitAsync(0)) throw new InvalidOperationException("An update is already in progress.");
         try
         {
-            if (_installerStarted) return "Nexus Setup is already running.";
-            return await LaunchInstallerAsync(release);
+            return await LaunchInstallerAsync(release, progress);
         }
         finally { _installGate.Release(); }
     }
 
-    private async Task<string> LaunchInstallerAsync(Release release)
+    private async Task<string> LaunchInstallerAsync(Release release, Action<string, int?> progress)
     {
         if (release.InstallerUrl is null || release.Sha256 is null) throw new InvalidOperationException("That release has no installer with a published checksum, so it is not installed.");
         var asset = new Uri(release.InstallerUrl);
@@ -186,12 +190,30 @@ public sealed partial class UpdateHost(string root)
         var directory = Path.Combine(Path.GetTempPath(), "Nexus-update");
         Directory.CreateDirectory(directory);
         var file = Path.Combine(directory, Path.GetFileName(asset.AbsolutePath));
-        using (var response = await RequestAsync(asset.PathAndQuery))
+        progress("Downloading the installer", null);
+        try
         {
+            using var downloadDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            using var response = await RequestAsync(asset.PathAndQuery);
             response.EnsureSuccessStatusCode();
+            var size = response.Content.Headers.ContentLength;
+            await using var input = await response.Content.ReadAsStreamAsync(downloadDeadline.Token);
             await using var output = File.Create(file);
-            await response.Content.CopyToAsync(output);
+            var buffer = new byte[128 * 1024];
+            long received = 0;
+            var refresh = Stopwatch.StartNew();
+            int count;
+            while ((count = await input.ReadAsync(buffer, downloadDeadline.Token)) > 0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0, count), downloadDeadline.Token);
+                received += count;
+                if (refresh.ElapsedMilliseconds < 300) continue;
+                progress("Downloading the installer", size > 0 ? (int)Math.Min(100, received * 100 / size.Value) : null);
+                refresh.Restart();
+            }
         }
+        catch (OperationCanceledException) { throw new InvalidOperationException("The installer download timed out. Try Update now again."); }
+        progress("Verifying the installer checksum", null);
         string hash;
         await using (var stream = File.OpenRead(file)) hash = Convert.ToHexString(await SHA256.HashDataAsync(stream));
         if (!hash.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -209,18 +231,18 @@ public sealed partial class UpdateHost(string root)
             Directory.CreateDirectory(backup);
             foreach (var f in Directory.GetFiles(secrets)) File.Copy(f, Path.Combine(backup, Path.GetFileName(f)), true);
         }
-        var installer = Process.Start(new ProcessStartInfo(file, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS") { UseShellExecute = true }) ?? throw new InvalidOperationException("Nexus Setup could not start.");
-        _installerStarted = true;
-        _ = ObserveInstallerAsync(installer);
-        return $"Installing {release.Tag}. Nexus will close and reopen.";
-    }
-
-    private async Task ObserveInstallerAsync(Process installer)
-    {
-        using (installer)
-        {
-            try { await installer.WaitForExitAsync(); }
-            finally { _installerStarted = false; }
-        }
+        progress("Opening Nexus Setup", null);
+        var log = Path.Combine(Folder, "manual-update.log");
+        var start = new ProcessStartInfo(file) { UseShellExecute = true };
+        foreach (var argument in new[] { "/SP-", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", $"/LOG={log}" })
+            start.ArgumentList.Add(argument);
+        using var installer = Process.Start(start) ?? throw new InvalidOperationException("Nexus Setup could not start.");
+        progress("Follow the Nexus Setup window to continue", null);
+        await installer.WaitForExitAsync();
+        if (installer.ExitCode != 0)
+            throw new InvalidOperationException($"Setup ended with code {installer.ExitCode}. You can try Update now again. Details are in %LOCALAPPDATA%\\Nexus\\manual-update.log.");
+        if (CurrentVersion() != release.Tag.TrimStart('v'))
+            throw new InvalidOperationException("Setup closed, but Windows has not registered the selected Nexus version.");
+        return $"Nexus {release.Tag} is installed.";
     }
 }

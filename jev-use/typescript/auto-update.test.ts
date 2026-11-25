@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,4 +57,35 @@ test('nothing happens when current, when switched off, or when no release has a 
   assert.match((await decide({ installed: '1.17.0' })).reason, /already on/);
   assert.match((await decide({ autoUpdate: false })).reason, /switched off/);
   assert.match((await decide({ releases: [{ tag_name: 'v9.0.0', description: 'no checksum', assets: { links: [] } }] })).reason, /no release with an installer/);
+});
+
+test('a denied schedule never starts the existing updater task', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nexus-update-schedule-'));
+  const staged = join(dir, 'Nexus', 'staged');
+  await mkdir(staged, { recursive: true });
+  const bytes = 'verified installer fixture';
+  const filename = 'Nexus-Harness-Setup-1.17.0-windows-x64.exe';
+  const checksum = createHash('sha256').update(bytes).digest('hex');
+  await writeFile(join(staged, filename), bytes);
+  const fixture = release('v1.17.0');
+  fixture.description = fixture.description.replace(sha, checksum);
+  await writeFile(join(dir, 'releases.json'), JSON.stringify([fixture]));
+  await writeFile(join(dir, 'runs.json'), '[]');
+  const wrapper = join(dir, 'wrapper.ps1');
+  await writeFile(wrapper, [
+    `function Get-FileHash { [pscustomobject]@{ Hash = '${checksum}' } }`,
+    'function New-ScheduledTaskAction {}',
+    'function New-ScheduledTaskPrincipal {}',
+    'function Get-Process {}',
+    "function Register-ScheduledTask { Write-Error 'simulated access denied' -ErrorAction Continue }",
+    "function Start-ScheduledTask { Write-Output 'STALE_TASK_STARTED' }",
+    "& $env:NEXUS_TEST_UPDATER -ReleasesJson (Join-Path $env:LOCALAPPDATA 'releases.json') -RunsJson (Join-Path $env:LOCALAPPDATA 'runs.json') -InstalledVersion '1.16.1' -IdleSeconds 900",
+    'exit $LASTEXITCODE',
+  ].join('\n'));
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper], {
+    encoding: 'utf8', env: { ...process.env, LOCALAPPDATA: dir, NEXUS_TEST_UPDATER: script },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /simulated access denied/);
+  assert.doesNotMatch(result.stdout, /STALE_TASK_STARTED/);
 });

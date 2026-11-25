@@ -242,10 +242,16 @@ if (-not $DryRun) {
     New-Item -ItemType Directory -Path (Split-Path $staged) -Force | Out-Null
     if (-not ((Test-Path $staged) -and (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower() -eq $latest.Sha)) {
         $ok = $false
-        if ($latest.Source -eq 'github') {
+        if ($latest.Source -eq 'github' -and $token) {
+            # On the office LAN, use the same package without the public CDN transfer.
+            $lanAsset = "http://10.2.6.112:8080/api/v4/projects/ssm%2Fshared-computer-use/packages/generic/nexus-harness/$($latest.Tag.Substring(1))/$($latest.Name)"
+            $ok = (Invoke-NexusCurl -Arguments @('-fsS', '--connect-timeout', '3', '--max-time', '90', '-o', $staged, '-H', "PRIVATE-TOKEN: $token", $lanAsset)) -and
+                (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant() -eq $latest.Sha
+        }
+        if (-not $ok -and $latest.Source -eq 'github') {
             # Never send the private GitLab token to GitHub or its download CDN.
             $ok = Invoke-NexusCurl -Arguments @('-fsSL', '--retry', '2', '--connect-timeout', '8', '--max-time', '900', '--proto', '=https', '--proto-redir', '=https', '-o', $staged, $latest.Url)
-        } else {
+        } elseif (-not $ok) {
             foreach ($h in $hosts) {
                 $arguments = @('-sS', '-f', '--connect-timeout', '5', '--max-time', '900', '-o', $staged) + $(if ($token) { '-H', "PRIVATE-TOKEN: $token" }) + ($h + $latest.Path)
                 if (Invoke-NexusCurl -Arguments $arguments) { $ok = $true; break }
@@ -281,6 +287,14 @@ if (Test-Path $secrets) {
 $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Install -File "{1}" -Version {2}' -f $PSCommandPath, $staged, $latest.Tag
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName 'Nexus-AutoUpdate-Install' -Action $action -Principal $principal -Force | Out-Null
-Start-ScheduledTask -TaskName 'Nexus-AutoUpdate-Install'
+try {
+    $registered = Register-ScheduledTask -TaskName 'Nexus-AutoUpdate-Install' -Action $action -Principal $principal -Force -ErrorAction Stop
+    if ($registered.Actions.Count -ne 1 -or $registered.Actions[0].Arguments -ne $arguments) {
+        throw 'The scheduled action does not match the verified installer.'
+    }
+    Start-ScheduledTask -InputObject $registered -ErrorAction Stop
+} catch {
+    Write-Log ('Could not schedule the verified Nexus update: ' + $_.Exception.Message)
+    exit 1
+}
 Write-Log "Starting the update from $installed to $($latest.Tag)"
