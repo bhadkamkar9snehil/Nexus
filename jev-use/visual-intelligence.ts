@@ -9,6 +9,8 @@ import { decide } from './decisions.js';
 import { captureBrowser, captureDesktop } from './visual-capture.js';
 import { contractDefinition, recipeDefinition, defineWorkflow, getWorkflow, listWorkflows, nextTransition } from './visual-workflows.js';
 import { watchManage } from '../visual-watch.mjs';
+import {localOcr,visualNovelty,visualHandover,visualMemoryRecord} from './visual-evidence.js';
+import {visualRetention} from './visual-retention.js';
 
 const MODEL = 'jev-1.14.0';
 const MAX = 16 * 1024 * 1024;
@@ -112,8 +114,15 @@ export function boxToPixels(box:any, p:Awaited<ReturnType<typeof prepare>>, imag
   return {left,top,width:right-left,height:bottom-top};
 }
 
-export async function visualTool(name:string,args:Record<string,any>,root:string,addUsage:(u:unknown)=>void,sender?:Sender) {
+export async function visualTool(name:string,args:Record<string,any>,root:string,addUsage:(u:unknown)=>void,sender?:Sender,context:{trace?:string;parentSpanId?:string}={}) {
   const start=Date.now(), project=visualProject(args.project);
+  if(name==='visual_retention')return visualRetention(root,args);
+  if(name==='visual_handover')return visualHandover(root,args,context);
+  if(name==='visual_memory_record')return visualMemoryRecord(root,args);
+  if(name==='visual_ocr'||name==='visual_novelty'){
+    const image=await loadVisual(args.path);
+    return name==='visual_ocr'?localOcr(image):visualNovelty(root,project,image);
+  }
   if(name==='visual_watch_manage'){
     if(args.action==='create'){
       if(process.env.NEXUS_VISUAL_OUTBOUND!=='1'||args.confirm_upload!==true||args.confirm_future_frames!==true)throw new Error('Operator opt-in and explicit future-frame authorization required');

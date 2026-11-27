@@ -230,7 +230,7 @@ server.setRequestHandler('tools/call', async ({ params },ctx) => withToolKey(par
     };
     const limit = args.max_steps ?? 10;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid max_steps');
-    const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result'].includes(params.name);
+    const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result','jev_semantic_judge'].includes(params.name);
     const goal = decisionTool || params.name.startsWith('visual_') || ['web_scrape', 'browser_read_page', 'jev_search_content', 'search_local', 'nexus_read_file', 'nexus_read_document', 'nexus_write_file','nexus_edit_file','nexus_transfer_file','nexus_upload_file', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'nexus_start_task', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process', 'restart_application', 'restart_status', 'nexus_peers', 'nexus_mail', 'nexus_webhooks', 'nexus_events'].includes(params.name) ? '' : required('goal');
     preparationMs=Math.round(performance.now()-monotonicStart);
     const executionStart=performance.now();

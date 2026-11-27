@@ -8,7 +8,7 @@ import { loadVisual, prepare, infer, boxToPixels, visualTool } from '../visual-i
 import { createCoreRegistry } from '../tool-handlers/index.js';
 
 test('visual tools bind in production registry',()=>{
-  assert.equal(createCoreRegistry().list().filter(t=>t.name.startsWith('visual_')).length,19);
+  assert.equal(createCoreRegistry().list().filter(t=>t.name.startsWith('visual_')).length,24);
 });
 test('image pipeline, privacy, multipart, cache, abstention, local assets and diff',async()=>{
   const dir=await mkdtemp(join(tmpdir(),'nexus-visual-'));

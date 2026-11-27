@@ -185,6 +185,9 @@ Nexus can evaluate explicitly supplied PNG and JPEG screenshots with Jev 1.14. T
 | `visual_capture`, `visual_asset`, `visual_redact` | Capture existing windows/sessions locally, inspect/export stored assets, redact pixel rectangles. |
 | `visual_contract_registry`, `visual_recipe` | Immutable versioned contracts and state-transition recommendations. |
 | `visual_watch_manage` | Create, inspect and cancel finite managed-monitor watches; publish visual.watch events. |
+| `visual_ocr`, `visual_novelty`, `visual_retention` | Local text extraction, perceptual comparison and reference-protected retention planning. |
+| `visual_handover`, `visual_memory_record` | Authorized own-device evidence handover and reviewed memory records. |
+| `jev_semantic_judge` | Independently evaluate bounded text candidates for ten typed semantic purposes. |
 
 External image inference is disabled by default. Configure `NEXUS_VISUAL_OUTBOUND=1` and `NEXUS_VISUAL_OUTBOUND_ROOTS` with an approved staging directory. Every external call must also supply `confirm_upload=true`. Do not configure production screenshot directories as outbound roots. Local tools use the existing read roots. See USAGE.md for limits and current gaps.
 
