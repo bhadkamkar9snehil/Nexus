@@ -36,7 +36,7 @@ let runtimeCheck;
 let runtimeAt=0;
 let runCache;
 let runPending;
-const assets = Object.fromEntries(['app.js','app.css','geist.woff2','geist-mono.woff2'].map(name => ['/assets/' + name, new URL('./monitor-ui/dist/' + name, import.meta.url)]));
+const assets = Object.fromEntries(['app.js','app.css','geist.woff2','geist-mono.woff2'].flatMap(name => ['/assets/', '/monitor-ui/dist/'].map(prefix => [prefix + name, new URL('./monitor-ui/dist/' + name, import.meta.url)])));
 
 const html = await readFile(new URL('./desktop.html', import.meta.url));
 const managed = process.env.HARNESS_MONITOR_MANAGED === '1';

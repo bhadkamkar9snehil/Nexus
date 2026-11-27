@@ -37,6 +37,8 @@ try {
         & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $updaterRecoveryTests
         if ($LASTEXITCODE -ne 0) { throw 'Nexus updater recovery orchestration tests failed.' }
     }
+    & node --test (Join-Path $PSScriptRoot 'tests\DesktopAssets.test.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop asset resolution check failed.' }
     # Redirect from a file: piping from PowerShell is not reliable for a stdio server.
     $request = Join-Path ([IO.Path]::GetTempPath()) ('mcp-request-' + [guid]::NewGuid() + '.json')
     [IO.File]::WriteAllText($request, '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' + "`n")
