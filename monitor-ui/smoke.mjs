@@ -13,7 +13,7 @@ const screenshot=async name=>{await page.evaluate(()=>document.fonts.ready);awai
 const go=async name=>{await page.getByRole('button',{name,exact:true}).click();await page.getByRole('heading',{name,exact:true}).waitFor();};
 try{
  const runtime=await (await page.request.get(origin+'/monitor-status')).json();
- if(runtime.managed){
+ {
   const standalone=await page.request.get(origin+'/',{headers:{'User-Agent':'Standalone browser'}});
   assert.equal(standalone.status(),404);
   assert.match(await standalone.text(),/Open Nexus from the Windows Start menu/);

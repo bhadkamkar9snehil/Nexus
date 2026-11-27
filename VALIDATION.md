@@ -1,5 +1,9 @@
 # Validation and acceptance
 
+## Terminal retention for issue #90
+
+The Windows regression test fills an isolated registry with recent records, starts a real CMD process through Nexus, and checks that only the oldest completed record is moved to the archive and its output is preserved. A newer completed record and the active record's output remain accessible.
+
 ## Compiled setup backend
 
 The package builder publishes the self-contained .NET 10 setup executable and runs its Windows self-test before packaging. Inno invokes it for preflight and provisioning. Desktop Settings and the packaged ZIP entry point invoke it for repair. The helper queries Task Scheduler and Windows process metadata directly, binds monitor health to the PID actually listening on the port, and validates bundled files before repair stops the monitor. The installed monitor's existing runtime host is a separate component.

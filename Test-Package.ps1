@@ -43,7 +43,7 @@ try {
     try { $reply = cmd.exe /c "node .\start.mjs < `"$request`"" } finally { Remove-Item -LiteralPath $request -Force -ErrorAction SilentlyContinue }
     if ($LASTEXITCODE -ne 0) { throw 'MCP launcher failed.' }
     $json = $reply | ConvertFrom-Json
-    foreach ($name in 'jev_browse','jev_desktop','jev_search_content','search_local','network_probe','map_files','find_files','search_status','jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result','start_process','read_process_output','interact_with_process','list_sessions','force_terminate','list_processes','kill_process','restart_application','restart_status') {
+    foreach ($name in 'jev_browse','jev_desktop','jev_search_content','search_local','network_probe','map_files','find_files','search_status','jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result','nexus_start_task','start_process','read_process_output','interact_with_process','list_sessions','force_terminate','list_processes','kill_process','restart_application','restart_status') {
         if ($name -notin $json.result.tools.name) { throw "Missing MCP tool $name" }
     }
     'PASS: TypeScript, monitor syntax, and MCP tool discovery.'

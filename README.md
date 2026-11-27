@@ -1,10 +1,16 @@
 # Nexus Harness
 
-Nexus gives Codex and Claude Code a shared set of Windows tools for finding files, searching text, using browsers and desktop apps, investigating networks, and making bounded decisions with TypeSafe Jev. Its local monitor shows tool activity and component health.
+Nexus gives Codex and Claude Code a shared set of Windows tools for finding files, searching text, using browsers and desktop apps, investigating networks, and making bounded decisions with TypeSafe Jev. The Nexus desktop app shows tool activity and component health. The loopback runtime is an internal service, not a separate browser UI.
 
 **Start here:** [What to download](#what-to-download) · [Install with the wizard](#install-with-the-wizard) · [Settings](#settings) · [Connect Codex and Claude](#connect-codex-and-claude-code) · [Verify the installation](#verify-the-installation) · [Troubleshooting](#troubleshooting)
 
-![Nexus monitor overview, light theme](docs/screenshots/overview-light.png)
+![Nexus desktop overview, light theme](docs/screenshots/overview-light.png)
+
+The desktop Observability page shows a time-aligned tool-call waterfall, filters, client identity, request and response field metadata, reported usage and individual call timings. It refreshes from the local run log; unchanged responses use conditional HTTP. No raw payload values are retained. Peer operations use a separate count: send, receive, responder queue and execution, and reply share a trace ID. The Trace inspector follows local operations on that trace; it does not fetch remote logs.
+
+![Observability, light theme](docs/screenshots/observability-light.png)
+
+The desktop Tasks page lists durable local terminal tasks, their results, client identity and related traces. It can request cancellation with confirmation. Existing terminal tools remain available to hosts without the Tasks extension.
 
 ## What to download
 
@@ -159,7 +165,7 @@ The live `tools` catalog is authoritative. The current baseline is:
 | `jev_classify_failure` | Classify supplied failure evidence and recommend a recovery. |
 | `jev_verify_result` | Judge whether supplied evidence supports a requested outcome. |
 
-Terminal tools use one detached worker per active session, not another always-running service. Session state and up to 4 MiB of retained output are kept in the current Windows user's LocalAppData under `Nexus\terminal-sessions`. Sessions remain usable after an agent's MCP adapter disconnects. The desktop app groups the seven tools under Terminal and displays session registry state, duration and exit code; it does not run commands itself. Completed sessions are kept until a later start prunes records older than seven days. The registry holds up to 64 records. An explicit session ID is safer than a PID after process reuse. Shell input/output uses pipes, not a pseudo-terminal (PTY); programs requiring a real console may not work. Command execution uses the signed-in Windows user's permissions and is **not sandboxed**. Do not send untrusted commands to the terminal or assume a command blocklist prevents harmful operations. `kill_process` requires `confirm=true`, an exact name and the start identity returned by `list_processes`; agents must get user authorization for disruptive changes. The monitor records tool metadata, not command or stdin content. During launch a private local file briefly holds the command; do not put credentials in command arguments. See [USAGE.md](USAGE.md) for limits and detailed contracts.
+Terminal tools use one detached worker per active session, not another always-running service. Session state and up to 4 MiB of retained output are kept in the current Windows user's LocalAppData under `Nexus\terminal-sessions`. Sessions remain usable after an agent's MCP adapter disconnects. The desktop app groups the seven tools under Terminal and displays session registry state, duration and exit code; it does not run commands itself. A new session prunes completed records older than seven days. When the registry reaches its 64-record limit, a new session moves the oldest completed records needed to make room into the registry's `archive` folder, including their retained output. Active sessions are protected. An explicit session ID is safer than a PID after process reuse. Shell input/output uses pipes, not a pseudo-terminal (PTY); programs requiring a real console may not work. Command execution uses the signed-in Windows user's permissions and is **not sandboxed**. Do not send untrusted commands to the terminal or assume a command blocklist prevents harmful operations. `kill_process` requires `confirm=true`, an exact name and the start identity returned by `list_processes`; agents must get user authorization for disruptive changes. The monitor records tool metadata, not command or stdin content. During launch a private local file briefly holds the command; do not put credentials in command arguments. See [USAGE.md](USAGE.md) for limits and detailed contracts.
 
 The four decision tools return judgments or recommendations; they do not execute a workflow or independently observe the application. A null or uncertain result is valid. Give browser and desktop tasks a specific target and end condition. An inaccessible control, ambiguous target, challenge or step limit can stop the task; inspect the actual result rather than assuming success.
 
@@ -206,6 +212,8 @@ Incoming peer messages, configured GitLab events, and available updates use nati
 | ![Agents and tools](docs/screenshots/tools-light.png) | ![Runtime health](docs/screenshots/health-light.png) |
 
 **Inbox** is the messaging page: a searchable list of paired computers with unread counts and previews, and a thread that fills the window, scrolls inside itself and keeps the composer in place. Forwarded GitLab events show as one line, never as raw JSON. **Devices** manages the computers: this computer's network state and responder defaults, and one table of paired computers with enable, mail, chat, auto-reply and autonomy controls. Pair a computer opens the code form in place. Your own computers pair automatically over Tailscale. Teammates pair with a one-time code. **Agents & tools** lists the registered agents and the capability catalog; Terminal sessions stay closed, and are not fetched, until you open them. See [USAGE.md](USAGE.md) for responder settings and delivery behavior.
+
+Devices shows Tailscale presence for matching Tailscale addresses and checks the Nexus receiver directly for other paired addresses, including office LAN addresses. Online indicates presence, not verified message delivery.
 
 GitLab pipeline event summaries include a bounded pipeline ID, short commit SHA, duration, individual completed-job durations, and failed job names when GitLab supplies them. The full job trace remains in GitLab; the monitor does not store raw CI logs.
 

@@ -1,4 +1,7 @@
 export type ToolInvocation = {
+  traceId?: string;
+  client?: string;
+  spanId?: string;
   name: string;
   args: Record<string, any>;
   required: (key: string, maxLength?: number) => string;

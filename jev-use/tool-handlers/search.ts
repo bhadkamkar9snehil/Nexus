@@ -7,6 +7,7 @@ import { searchContent } from '../search-content.js';
 import { searchLocal } from '../local-search.js';
 import { readTextFile } from '../read-text-file.js';
 import { readDocument } from '../read-document.js';
+import { binaryTransfer } from '../binary-transfer.js';
 import { writeTextFile, editTextFile } from '../write-text-file.js';
 import type { ToolRegistry } from '../tool-registry.js';
 import type { ToolInvocation } from '../tool-context.js';
@@ -73,6 +74,8 @@ export function registerSearchTools(registry: ToolRegistry<ToolInvocation>) {
     output = JSON.stringify(await writeTextFile({ path: required('path'), content: args.content as string, overwrite: args.overwrite as boolean | undefined, expected_sha256: args.expected_sha256 as string | undefined }));
     return output;
   });
+  registry.bind('nexus_upload_file',async ({args,required})=>{const f=args.file;if(!f||typeof f.id!=='string'||!f.id.length||f.id.length>128||typeof f.mimeType!=='string'||!f.mimeType||f.digest?.algorithm!=='sha-256'||typeof f.digest?.value!=='string'||! /^[A-Za-z0-9_-]{43}$/.test(f.digest.value))throw new Error('Invalid file metadata or digest');const digest=Buffer.from(f.digest.value,'base64url');if(digest.length!==32||digest.toString('base64url')!==f.digest.value)throw new Error('Invalid digest');return JSON.stringify(await binaryTransfer({action:'upload',path:required('path'),data:f.data===undefined&&f.size===0?'':f.data,size:f.size,sha256:digest.toString('hex')}));});
+  registry.bind('nexus_transfer_file', async ({args,required}) => JSON.stringify(await binaryTransfer({action:required('action'),path:required('path'),data:args.data as string|undefined,size:args.size as number|undefined,sha256:args.sha256 as string|undefined})));
   registry.bind('nexus_edit_file', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask }) => {
     let output: string;
     output = JSON.stringify(await editTextFile({ path: required('path'), old_text: args.old_text as string, new_text: args.new_text as string, expected_replacements: args.expected_replacements as number | undefined }));

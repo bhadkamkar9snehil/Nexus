@@ -1,6 +1,7 @@
 // Peer-to-peer connections between Nexus installations: no hub. Each side keeps the other's token and a per-peer
 // switch and permissions. Mail and chat travel over HTTP to the peer's receiver (the webhook port) and are kept in a local mailbox.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { beginPeerSpan, traceId, validTrace, validSpan, validMessage } from './peer-telemetry.mjs';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
@@ -117,35 +118,47 @@ function validate({ kind, subject, body, hop }) {
   if (subject !== undefined && (typeof subject !== 'string' || subject.length > 200)) throw new Error('subject at most 200 characters');
 }
 
-export async function sendMessage(root, { to, kind = 'mail', subject, body, hop }, fetcher = fetch) {
+export async function sendMessage(root, { to, kind = 'mail', subject, body, hop, trace, parentSpanId }, fetcher = fetch) {
   validate({ kind, subject, body, hop });
+  const messageId=randomBytes(16).toString('hex');
+  const span=beginPeerSpan(root,'peer_send',{peer:to,kind,trace,parent:parentSpanId,messageId,hop,bytes:Buffer.byteLength(body)});
+  let stage='refused',httpStatus;
+  try {
   const peer = (await load(root)).peers.find(p => p.name === to);
   if (!peer) throw new Error('Unknown peer');
   if (!peer.enabled) throw new Error('Peer is switched off');
   if (!peer.allow[kind]) throw new Error(`Peer is not permitted to exchange ${kind}`);
   if (!peer.outbound) throw new Error('Pairing is incomplete: set the token the peer gave you (nexus_peers set outbound_token)');
   const self = (await load(root)).self ?? 'nexus';
+  stage='transport_error';
   const response = await fetcher(peer.url + '/peer/message', {
     method: 'POST', signal: AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + peer.outbound },
-    body: JSON.stringify({ kind, subject, body, ...(hop === undefined ? {} : { hop }) }),
+    body: JSON.stringify({ kind, subject, body, trace:span.traceId,parentSpanId:span.spanId,messageId, ...(hop === undefined ? {} : { hop }) }),
   });
-  if (!response.ok) throw new Error(`Peer refused the message (${response.status})`);
-  const message = { id: randomBytes(6).toString('hex'), box: 'out', at: Date.now(), peer: to, kind, subject, body, ...(hop === undefined ? {} : { hop }) };
+  httpStatus=response.status;
+  if (!response.ok) {stage='refused';throw new Error(`Peer refused the message (${response.status})`);}
+  stage='storage_error';
+  const message = { id: randomBytes(6).toString('hex'), trace:span.traceId,parentSpanId:span.spanId,messageId, box: 'out', at: Date.now(), peer: to, kind, subject, body, ...(hop === undefined ? {} : { hop }) };
   await store(root, message);
+  span.finish('passed','delivered',{httpStatus});
   return { id: message.id, delivered: true, from: self };
+  } catch(error){span.finish(stage==='refused'?'blocked':'error',stage,{httpStatus});throw error;}
 }
 
 /** Handles POST /peer/message for the receiver. Returns an HTTP status; `onMessage` is called for each stored message. */
 export async function receive(root, authorization, payload, onMessage) {
   const token = Buffer.from(String(authorization ?? '').replace(/^Bearer /, ''));
   const peer = (await load(root)).peers.find(p => { const a = Buffer.from(p.inbound); return a.length === token.length && timingSafeEqual(a, token); });
-  if (!peer) return 401;
-  if (!peer.enabled) return 403;
-  try { validate(payload); } catch { return 400; }
-  if (!peer.allow[payload.kind]) return 403;
-  const message = { id: randomBytes(6).toString('hex'), box: 'in', at: Date.now(), peer: peer.name, kind: payload.kind, subject: payload.subject, body: payload.body, ...(payload.hop === undefined ? {} : { hop: payload.hop }) };
-  await store(root, message);
+  if (!peer) return 401; // not logged: anyone who can reach the port could push real entries out of the run history
+  if (!peer.enabled) {beginPeerSpan(root,'peer_receive',{peer:peer.name}).finish('blocked','refused',{httpStatus:403});return 403;}
+  try { validate(payload); } catch {beginPeerSpan(root,'peer_receive',{peer:peer.name}).finish('blocked','refused',{httpStatus:400});return 400;}
+  if (!peer.allow[payload.kind]) {beginPeerSpan(root,'peer_receive',{peer:peer.name,kind:payload.kind}).finish('blocked','refused',{httpStatus:403});return 403;}
+  const messageId=validMessage(payload.messageId)?payload.messageId:randomBytes(16).toString('hex');
+  const span=beginPeerSpan(root,'peer_receive',{peer:peer.name,kind:payload.kind,trace:validTrace(payload.trace)?payload.trace:undefined,parent:validSpan(payload.parentSpanId)?payload.parentSpanId:undefined,messageId,hop:payload.hop,bytes:Buffer.byteLength(payload.body)});
+  const message = { id: randomBytes(6).toString('hex'), trace:span.traceId,parentSpanId:span.spanId,messageId, box: 'in', at: Date.now(), peer: peer.name, kind: payload.kind, subject: payload.subject, body: payload.body, ...(payload.hop === undefined ? {} : { hop: payload.hop }) };
+  try{await store(root, message);}catch(error){span.finish('error','storage_error');throw error;}
+  span.finish('passed','received',{httpStatus:200});
   onMessage?.(message);
   return 200;
 }

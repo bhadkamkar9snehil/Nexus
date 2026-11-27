@@ -33,7 +33,7 @@ test('ChatGPT bridge defaults to metadata-only and rejects command execution', {
     assert.equal(reply.content?.[0]?.type, 'text');
     const denied = await client.callTool({ name: 'start_process', arguments: { command: 'whoami' } });
     assert.equal(denied.isError, true);
-    assert.match(String(denied.content?.[0]?.text), /disabled by local Nexus ChatGPT policy/);
+    assert.match(String(denied.content?.[0]?.type==='text'?denied.content[0].text:''), /disabled by local Nexus ChatGPT policy/);
   } finally {
     await transport.close();
   }

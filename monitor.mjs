@@ -12,6 +12,7 @@ import { respondTo } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
 import { handleApi } from './peers-api.mjs';
 import { versionInfo } from './version.mjs';
+import {listTaskViews,requestTaskStop} from './jev-use/task-state.mjs';
 
 const execute = promisify(execFile);
 const node = process.execPath;
@@ -32,21 +33,25 @@ let catalog;
 let healthCheck;
 let runtimeCheck;
 let runtimeAt=0;
+let runCache;
+let runPending;
 const assets = Object.fromEntries(['app.js','app.css','geist.woff2','geist-mono.woff2'].map(name => ['/assets/' + name, new URL('./monitor-ui/dist/' + name, import.meta.url)]));
 
 const html = await readFile(new URL('./desktop.html', import.meta.url));
 const managed = process.env.HARNESS_MONITOR_MANAGED === '1';
 const log = new URL('./runs.jsonl', import.meta.url);
 
-async function recentRuns() {
+async function readRuns() {
   let file;
   try { file = await open(log); } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
   }
   try {
-    const { size } = await file.stat();
-    const offset = Math.max(0, size - 256 * 1024);
+    const { size, mtimeMs } = await file.stat();
+    const key=size+':'+mtimeMs;
+    if(runCache?.key===key)return runCache.rows;
+    const offset = Math.max(0, size - 2 * 1024 * 1024);
     const bytes = Buffer.alloc(size - offset);
     await file.read(bytes, 0, bytes.length, offset);
     const rows = new Map();
@@ -55,13 +60,20 @@ async function recentRuns() {
       try {
         const row = JSON.parse(line);
         const first = rows.get(row.id);
-        rows.set(row.id, { ...row, started: first?.started ?? row.at - (row.ms ?? 0) });
+        rows.set(row.id, { ...first, ...row, started: first?.started ?? row.at - (row.ms ?? 0) });
       } catch { /* An incomplete last line will appear on the next refresh. */ }
     }
-    return [...rows.values()].sort((a, b) => b.started - a.started).slice(0, 500);
+    const result=[...rows.values()].sort((a,b)=>b.started-a.started).slice(0,500);
+    runCache={key,rows:result,json:JSON.stringify(result)};
+    return result;
   } finally {
     await file.close();
   }
+}
+
+async function recentRuns(){
+  runPending??=readRuns().finally(()=>{runPending=undefined;});
+  return runPending;
 }
 
 createServer(async (req, res) => {
@@ -80,6 +92,10 @@ createServer(async (req, res) => {
       for await (const c of req) { size += c.length; if (size > 128 * 1024) return send(413, 'text/plain', 'Too large'); chunks.push(c); }
       try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}; } catch { return send(400, 'text/plain', 'Bad JSON'); }
     }
+    if(req.url==='/api/tasks/cancel'&&req.method==='POST'){
+      if(req.headers['user-agent']?.trim().split(' ').at(-1)!=='NexusDesktop/1.0')return send(403,'text/plain','Forbidden');
+      try{await requestTaskStop(body.taskId);return send(202,'application/json',JSON.stringify({status:'requested'}));}catch{return send(404,'text/plain','Task not found or unavailable');}
+    }
     const result = await handleApi(import.meta.dirname, req.method, new URL(req.url, origin), body);
     return send(result.status, 'application/json', JSON.stringify(result.json));
   }
@@ -96,6 +112,10 @@ createServer(async (req, res) => {
     } catch {return send(503,'text/plain','Runtime observations unavailable. The monitor remains online.');}
   }
   if (req.url === '/webhook-events') return send(200, 'application/json', JSON.stringify({ port: webhookPort, events }));
+  if(req.url==='/tasks'){
+    if(req.headers['user-agent']?.trim().split(' ').at(-1)!=='NexusDesktop/1.0')return send(404,'text/plain','Open Nexus Desktop');
+    try{return send(200,'application/json',JSON.stringify({tasks:await listTaskViews()}));}catch{return send(503,'text/plain','Task registry unavailable');}
+  }
   if (req.url === '/sessions') {
     try {
       const result = await inspect('list_sessions');
@@ -106,7 +126,7 @@ createServer(async (req, res) => {
     } catch { return send(503, 'text/plain', 'Terminal sessions unavailable.'); }
   }
   if (new URL(req.url, origin).pathname === '/') {
-    if (managed && req.headers['user-agent']?.trim().split(' ').at(-1) !== 'NexusDesktop/1.0') {
+    if (req.headers['user-agent']?.trim().split(' ').at(-1) !== 'NexusDesktop/1.0') {
       return send(404, 'text/plain; charset=utf-8', 'Open Nexus from the Windows Start menu.');
     }
     return send(200, 'text/html; charset=utf-8', html);
@@ -132,7 +152,7 @@ createServer(async (req, res) => {
     } catch { return send(503, 'text/plain', 'Harness inspection failed. Check launcher and runtime dependencies.'); }
   }
   if (req.url !== '/runs') return send(404, 'text/plain', 'Not found');
-  try { send(200, 'application/json', JSON.stringify(await recentRuns())); }
+  try { const rows=await recentRuns(); const etag=runCache?.rows===rows?'"'+runCache.key+'"':'"empty"'; if(req.headers['if-none-match']===etag){res.writeHead(304,{'ETag':etag,'Cache-Control':'no-store'});return res.end();} res.setHeader('ETag',etag);send(200,'application/json',runCache?.rows===rows?runCache.json:JSON.stringify(rows)); }
   catch { send(500, 'text/plain', 'Could not read the run log'); }
 }).listen(port, '127.0.0.1', async () => {
   console.log('Computer & Browser Use Monitor: ' + origin);

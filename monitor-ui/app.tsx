@@ -5,14 +5,16 @@ import {UpdatesView} from './updates';
 import {InboxView} from './inbox';
 import {DevicesView} from './devices';
 import {api} from './mail';
-import {Bot,Download,Gauge,HeartPulse,MessagesSquare,Moon,Network,PanelLeftClose,PanelLeftOpen,Settings,Sun,Wrench} from 'lucide-react';
+import {Activity,Bot,Download,Gauge,HeartPulse,MessagesSquare,Moon,Network,PanelLeftClose,PanelLeftOpen,Settings,Sun,Wrench} from 'lucide-react';
 import {Panel,IconTile} from './upstream/viz';
 import {Button} from './upstream/button';
 import {Run,Runtime,Tool,names,number,money} from './data';
 import {Metrics,Workload,State} from './widgets';
 import {RunsView,HealthView,ToolsView} from './views';
+import {ObservabilityView} from './observability';
+import {TasksView} from './tasks';
 import {cn} from './utils';
-const routes=[{id:'overview',label:'Command centre',icon:Gauge},{id:'inbox',label:'Inbox',icon:MessagesSquare},{id:'tools',label:'Agents & tools',icon:Wrench},{id:'peers',label:'Devices',icon:Network},{id:'health',label:'Runtime health',icon:HeartPulse},{id:'usage',label:'Usage & cost',icon:Bot},{id:'updates',label:'Updates',icon:Download},{id:'settings',label:'Settings',icon:Settings}];
+const routes=[{id:'overview',label:'Command centre',icon:Gauge},{id:'observability',label:'Observability',icon:Activity},{id:'tasks',label:'Tasks',icon:Activity},{id:'inbox',label:'Inbox',icon:MessagesSquare},{id:'tools',label:'Agents & tools',icon:Wrench},{id:'peers',label:'Devices',icon:Network},{id:'health',label:'Runtime health',icon:HeartPulse},{id:'usage',label:'Usage & cost',icon:Bot},{id:'updates',label:'Updates',icon:Download},{id:'settings',label:'Settings',icon:Settings}];
 const Mark=({className}:{className?:string})=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" className={className} aria-hidden><circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V4.6M14.3 10.7l4-2.4M14.3 13.3l3.4 2.4M12 14.6v4.8M9.7 13.3l-3.4 2.4M9.7 10.7l-4-2.4"/><circle cx="12" cy="3.6" r="1.4" fill="currentColor"/><circle cx="19" cy="7.6" r="1.4" fill="currentColor"/><circle cx="18" cy="16.6" r="1.4" fill="currentColor"/><circle cx="12" cy="20.4" r="1.4" fill="currentColor"/><circle cx="6" cy="16.6" r="1.4" fill="currentColor"/><circle cx="5" cy="7.6" r="1.4" fill="currentColor"/></svg>;
 const safe=<T,>(fn:()=>T,fallback:T):T=>{try{return fn();}catch{return fallback;}};
 const segment=(n:number)=>location.hash.slice(2).split('/')[n]??'';
@@ -26,17 +28,19 @@ function App(){
  const [tools,Tools]=useState<Tool[]>([]),[toolError,ToolError]=useState(''),[runtime,RuntimeState]=useState<Runtime|null>(null),[runtimeError,RuntimeError]=useState(''),[checking,Checking]=useState(false);
  useEffect(()=>{document.documentElement.style.setProperty('--brand',accent);safe(()=>localStorage.setItem('harness.accent',accent),undefined);},[accent]);
  const checkHealth=useCallback(async()=>{Checking(true);try{const r=await fetch('/runtime');if(!r.ok)throw new Error();RuntimeState(await r.json());RuntimeError('');}catch{RuntimeError('Runtime observations are unavailable. The monitor can still show recorded calls.');}finally{Checking(false);}},[]);
- useEffect(()=>{checkHealth();const timer=setInterval(checkHealth,30000);return()=>clearInterval(timer);},[checkHealth]);
+ useEffect(()=>{if(view!=='health'&&view!=='tools'&&view!=='overview')return;checkHealth();const timer=setInterval(checkHealth,30000);return()=>clearInterval(timer);},[checkHealth,view]);
  useEffect(()=>{let stopped=false;const poll=async()=>{try{const {threads}=await api('/api/mail?summary');if(!stopped)Unread(threads.reduce((n:number,t:{unread:number})=>n+t.unread,0));}catch{/* the badge stays as it was */}};poll();const timer=setInterval(poll,5000);return()=>{stopped=true;clearInterval(timer);};},[]);
- useEffect(()=>{fetch('/tools').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(r=>Tools(r.tools)).catch(()=>ToolError('Tool catalog unavailable. Check the local launcher and dependencies.'));},[]);
+ useEffect(()=>{if(view!=='tools')return;fetch('/tools').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(r=>Tools(r.tools)).catch(()=>ToolError('Tool catalog unavailable. Check the local launcher and dependencies.'));},[view]);
  useEffect(()=>{
   const sync=()=>{View(parse());Arg(parseArg());};window.addEventListener('hashchange',sync);
   let stopped=false,timer:ReturnType<typeof setTimeout>;
-  const refresh=async()=>{try{const r=await fetch('/runs');if(!r.ok)throw new Error();const data=await r.json();if(!stopped){Runs(data.map((v:Run)=>({...v,status:v.status==='running'&&Date.now()-v.started>150000?'unconfirmed':v.status})));Loaded(true);Synced(Date.now());SetError('');}}catch{if(!stopped)SetError('Monitor disconnected. Reconnecting…');}if(!stopped)timer=setTimeout(refresh,2000);};refresh();return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('hashchange',sync);};
+  let last='',etag='',data:Run[]=[];
+  const refresh=async()=>{try{const r=await fetch('/runs',{headers:etag?{'If-None-Match':etag}:{}});let raw=last;if(r.status!==304){if(!r.ok)throw new Error();raw=await r.text();data=JSON.parse(raw);etag=r.headers.get('ETag')??'';}if(!stopped){if(raw!==last||data.some((v:Run)=>v.status==='running')){last=raw;Runs(data.map((v:Run)=>({...v,status:v.status==='running'&&Date.now()-v.started>150000?'unconfirmed':v.status})));}Loaded(true);Synced(Date.now());SetError('');}}catch{if(!stopped)SetError('Monitor disconnected. Reconnecting…');}if(!stopped)timer=setTimeout(refresh,2000);};refresh();return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('hashchange',sync);};
  },[]);
  const go=(id:string)=>{location.hash='/'+id;};
  const theme=()=>{Dark(!dark);document.documentElement.classList.toggle('dark',!dark);safe(()=>localStorage.setItem('l1.theme',!dark?'dark':'light'),undefined);};
  const title=routes.find(r=>r.id===view)!.label,Icon=routes.find(r=>r.id===view)!.icon;
+ const mcpRuns=runs.filter(r=>r.source!=='peer');
  const attention=runtime?.checks.filter(c=>c.state==='attention').length??0;
  return <div className="flex h-dvh overflow-hidden bg-background">
   <nav aria-label="Harness" className={cn('scrollbar-thin hidden w-16 shrink-0 flex-col md:flex items-center overflow-y-auto border-r bg-canvas py-3 *:shrink-0',!collapsed&&'xl:w-60 xl:items-stretch xl:px-2')}>
@@ -48,16 +52,18 @@ function App(){
    <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"><div className="space-y-3 px-4 py-3 lg:px-6">
     <header className="flex flex-wrap items-center gap-3"><IconTile icon={Icon}/><div className="min-w-0 flex-1"><h1 className="text-title font-semibold tracking-tight">{title}</h1>{(view==='overview'||view==='tools')&&<p className="text-xs text-subtle-foreground">{view==='overview'?'Recorded activity · up to 500 calls · live refresh':'Computer, browser, search and decision tools'}</p>}</div><span role="status"><State value={error?'error':loaded?'healthy':'unknown'} label={error?'Reconnecting':loaded?'Monitor online':'Connecting'}/></span></header>
     {error&&<div role="alert" className="rounded-lg bg-destructive-soft px-4 py-3 text-sm text-destructive">{error} Showing the last received data.</div>}
-    {view==='overview'&&<><Metrics runs={runs}/><Workload runs={runs}/><RunsView runs={runs} loading={!loaded}/></>}
+    {view==='overview'&&<><Metrics runs={mcpRuns}/><Workload runs={mcpRuns}/><RunsView runs={mcpRuns} loading={!loaded}/></>}
+    {view==='observability'&&<ObservabilityView key={arg} initialQuery={arg} runs={runs} loading={!loaded} disconnected={!!error}/>}
+    {view==='tasks'&&<TasksView/>}
     {view==='tools'&&<ToolsView tools={tools} runs={runs} runtime={runtime} error={toolError}/>}
     {view==='health'&&<HealthView runtime={runtime} error={runtimeError} checking={checking} refresh={checkHealth}/>}
-    {view==='usage'&&<><Metrics runs={runs}/><Panel icon={Bot} title="Usage ledger" meta="Reported API responses · this recorded window" pad="none"><div className="scrollbar-thin max-h-[480px] overflow-auto rounded-xl"><table className="w-full min-w-[620px] text-left text-xs"><thead className="sticky top-0 bg-surface text-muted-foreground"><tr>{['Tool','Input tokens','Output tokens','Estimated USD','Coverage'].map(v=><th className="border-b px-4 py-3 font-medium" key={v}>{v}</th>)}</tr></thead><tbody>{runs.map(r=><tr className="border-b last:border-0" key={r.id}><td className="px-4 py-3">{names[r.tool]??r.tool}</td><td className="px-4 py-3 tabular-nums">{r.inputTokens==null?'—':number(r.inputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.outputTokens==null?'—':number(r.outputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.estimatedJevUsd==null?'—':money(r.estimatedJevUsd)}</td><td className="px-4 py-3">{r.inputTokens==null?'Unknown':r.usagePartial?'Partial':'Reported'}</td></tr>)}</tbody></table></div></Panel><p className="text-2xs text-subtle-foreground">Estimate uses the historical $0.042 per million input tokens. Not a bill. Missing usage is unknown, not free; direct Cua calls are outside this ledger.</p></>}
+    {view==='usage'&&<><Metrics runs={mcpRuns}/><Panel icon={Bot} title="Usage ledger" meta="Reported API responses · this recorded window" pad="none"><div className="scrollbar-thin max-h-[480px] overflow-auto rounded-xl"><table className="w-full min-w-[620px] text-left text-xs"><thead className="sticky top-0 bg-surface text-muted-foreground"><tr>{['Tool','Input tokens','Output tokens','Estimated USD','Coverage'].map(v=><th className="border-b px-4 py-3 font-medium" key={v}>{v}</th>)}</tr></thead><tbody>{mcpRuns.map(r=><tr className="border-b last:border-0" key={r.id}><td className="px-4 py-3">{names[r.tool]??r.tool}</td><td className="px-4 py-3 tabular-nums">{r.inputTokens==null?'—':number(r.inputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.outputTokens==null?'—':number(r.outputTokens)}</td><td className="px-4 py-3 tabular-nums">{r.estimatedJevUsd==null?'—':money(r.estimatedJevUsd)}</td><td className="px-4 py-3">{r.inputTokens==null?'Unknown':r.usagePartial?'Partial':'Reported'}</td></tr>)}</tbody></table></div></Panel><p className="text-2xs text-subtle-foreground">Estimate uses the historical $0.042 per million input tokens. Not a bill. Missing usage is unknown, not free; direct Cua calls are outside this ledger.</p></>}
     {view==='updates'&&<UpdatesView/>}
     {view==='inbox'&&<InboxView peer={arg} open={name=>go('inbox/'+encodeURIComponent(name))}/>}
     {view==='peers'&&<DevicesView/>}
     {view==='settings'&&<SettingsView accent={accent} setAccent={Accent} dark={dark} theme={theme}/>}
    </div></div>
-   <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-canvas px-4 py-1.5 text-2xs text-subtle-foreground"><span className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full',error?'bg-destructive':'bg-signal')}/>Local runtime</span>{ver&&<a href="#/updates" title={ver.source==='source'?'Running from a source checkout'+(ver.ahead?`, ${ver.ahead} commit(s) after this release`:''):'Installed version'} className="font-mono hover:text-foreground">v{ver.version}{ver.ahead?`+${ver.ahead}`:''}</a>}{ver?.newer&&<a href="#/updates" className="rounded-full bg-warning-soft px-2 py-0.5 font-medium text-warning hover:opacity-80">Update available · v{ver.latest}</a>}<span>{runs.length} recorded calls</span><span>{runs.filter(r=>r.status==='running').length} running</span><span className="ml-auto">{synced?'Updated '+new Date(synced).toLocaleTimeString():'Waiting for activity'}</span></footer>
+   <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-canvas px-4 py-1.5 text-2xs text-subtle-foreground"><span className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full',error?'bg-destructive':'bg-signal')}/>Local runtime</span>{ver&&<a href="#/updates" title={ver.source==='source'?'Running from a source checkout'+(ver.ahead?`, ${ver.ahead} commit(s) after this release`:''):'Installed version'} className="font-mono hover:text-foreground">v{ver.version}{ver.ahead?`+${ver.ahead}`:''}</a>}{ver?.newer&&<a href="#/updates" className="rounded-full bg-warning-soft px-2 py-0.5 font-medium text-warning hover:opacity-80">Update available · v{ver.latest}</a>}<span>{mcpRuns.length} MCP calls</span><span>{runs.filter(r=>r.status==='running').length} running</span><span className="ml-auto">{synced?'Updated '+new Date(synced).toLocaleTimeString():'Waiting for activity'}</span></footer>
   </main>
  </div>;
 }

@@ -8,16 +8,24 @@ const fail = (status, message) => ({ status, json: { error: message } });
 const responderState = ({ enabled, autonomy }) => ({ enabled, autonomy });
 
 /** Handles one /api/ request. `body` is the parsed JSON body (or {}). */
-export async function handleApi(root, method, url, body, { run = runTailscale } = {}) {
+export async function handleApi(root, method, url, body, { run = runTailscale, fetcher = fetch } = {}) {
   const path = url.pathname;
   try {
     if (method === 'GET' && path === '/api/peers') {
       const net = await tailnet(run);
-      const peers = (await listPeers(root)).map(p => {
+      const peers = await Promise.all((await listPeers(root)).map(async p => {
         const ip = new URL(p.url).hostname;
         const device = net?.devices.find(d => d.ip === ip);
-        return { ...p, online: device ? device.online : null, os: device?.os ?? null };
-      });
+        let online = device?.online ?? null;
+        if (!device && p.enabled && p.paired) {
+          try {
+            // A deliberately invalid pairing request identifies existing Nexus receivers without changing their state.
+            const response = await fetcher(p.url + '/peer/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(2000), redirect: 'error' });
+            if (response.status === 403 && (await response.json().catch(() => null))?.error === 'Invalid or expired code') online = true;
+          } catch { online = false; }
+        }
+        return { ...p, online, os: device?.os ?? null };
+      }));
       if (url.searchParams.get('view') === 'inbox') {
         const responder = responderState(await loadResponderConfig(root));
         return { status: 200, json: { peers, responder } };

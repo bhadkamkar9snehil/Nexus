@@ -1,6 +1,6 @@
 type Allow = { mail?: boolean; chat?: boolean };
 type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean }; paired: boolean; own: boolean; responder?: { enabled?: boolean; autonomy?: 'safe' | 'full' } };
-type Message = { id: string; box: 'in' | 'out'; at: number; peer: string; kind: string; subject?: string; body: string; read?: boolean };
+type Message = { id: string; box: 'in' | 'out'; at: number; peer: string; kind: string; subject?: string; body: string; read?: boolean; trace?: string; parentSpanId?: string; messageId?: string; hop?: number };
 export function listPeers(root: string): Promise<Peer[]>;
 export function getPeer(root: string, name: string): Promise<Peer | null>;
 export function selfName(root: string): Promise<string>;
@@ -9,5 +9,5 @@ export function setPeer(root: string, name: string, change: { enabled?: boolean;
 export function removePeer(root: string, name: string): Promise<void>;
 export function readMailbox(root: string, options?: { box?: 'in' | 'out'; unread?: boolean; limit?: number }): Promise<Message[]>;
 export function markRead(root: string, ids: string[]): Promise<void>;
-export function sendMessage(root: string, message: { to: string; kind?: string; subject?: string; body: string }, fetcher?: typeof fetch): Promise<{ id: string; delivered: boolean; from: string }>;
+export function sendMessage(root: string, message: { to: string; kind?: string; subject?: string; body: string; trace?: string; parentSpanId?: string; hop?: number }, fetcher?: typeof fetch): Promise<{ id: string; delivered: boolean; from: string }>;
 export function receive(root: string, authorization: string | undefined, payload: unknown, onMessage?: (message: Message) => void): Promise<number>;

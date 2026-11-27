@@ -27,7 +27,8 @@ internal static class Program
             else if (operation is not ("provision" or "repair") || args.Skip(2).Any(option => option is not ("--browser" or "--search")))
                 throw new ArgumentException("Unknown installer operation or option.");
 
-            var root = SetupPath.ValidateDestination(args[1]);
+            using var uninstall = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1");
+            var root = SetupPath.ValidateDestination(args[1], uninstall?.GetValue("InstallLocation") as string);
             canElevate = operation == "preflight";
             Directory.CreateDirectory(Logs);
             using var setupLock = new FileStream(Path.Combine(Logs, "setup.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -233,7 +234,7 @@ internal static class SetupPath
 {
     internal static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-    internal static string ValidateDestination(string path)
+    internal static string ValidateDestination(string path, string? installedPath = null)
     {
         if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Choose an absolute installation folder.");
         var root = Normalize(path);
@@ -243,11 +244,17 @@ internal static class SetupPath
             throw new ArgumentException("Choose an installation folder outside AppData.");
         if (File.Exists(root)) throw new ArgumentException("The installation path is an existing file.");
         for (var directory = new DirectoryInfo(root); directory is not null; directory = directory.Parent)
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
+            if ((Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
+                && !CanUpgradeUnderDriveRoot(root, directory.FullName, installedPath))
                 throw new ArgumentException("Cannot install Nexus into a Git working directory.");
         Directory.CreateDirectory(root);
         var probe = Path.Combine(root, $".nexus-write-test-{Guid.NewGuid():N}");
         using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose)) { }
         return root;
     }
+
+    internal static bool CanUpgradeUnderDriveRoot(string destination, string ancestor, string? installedPath) =>
+        !string.IsNullOrWhiteSpace(installedPath) && Path.IsPathFullyQualified(installedPath)
+        && Normalize(destination).Equals(Normalize(installedPath), StringComparison.OrdinalIgnoreCase)
+        && Normalize(ancestor).Equals(Normalize(Path.GetPathRoot(destination)!), StringComparison.OrdinalIgnoreCase);
 }

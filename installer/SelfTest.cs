@@ -30,10 +30,14 @@ internal static class SelfTest
         var working = Path.Combine(profile, "nexus-setup-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            if (SetupPath.ValidateDestination(working) != working || Directory.EnumerateFileSystemEntries(working).Any())
+            if (!SetupPath.CanUpgradeUnderDriveRoot(working, Path.GetPathRoot(working)!, working)
+                || SetupPath.CanUpgradeUnderDriveRoot(working, profile, working)
+                || SetupPath.CanUpgradeUnderDriveRoot(working, Path.GetPathRoot(working)!, Path.Combine(profile, "other")))
+                throw new Exception("Existing installation exception is too broad.");
+            if (SetupPath.ValidateDestination(working, working) != working || Directory.EnumerateFileSystemEntries(working).Any())
                 throw new Exception("Destination probe failed.");
             File.WriteAllText(Path.Combine(working, ".git"), "fixture");
-            try { SetupPath.ValidateDestination(Path.Combine(working, "nested")); }
+            try { SetupPath.ValidateDestination(Path.Combine(working, "nested"), Path.Combine(working, "nested")); }
             catch (ArgumentException) { Console.WriteLine("Installer self-test passed."); return; }
             throw new Exception("Git working directory was accepted.");
         }

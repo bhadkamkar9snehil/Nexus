@@ -1,0 +1,43 @@
+import {chromium} from '../jev-use/node_modules/playwright/index.mjs';
+import assert from 'node:assert/strict';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {randomUUID} from 'node:crypto';
+import {join} from 'node:path';
+const installed=process.env.NEXUS_TEST_INSTALL;
+assert.ok(installed,'Set NEXUS_TEST_INSTALL to the installed harness');
+const origin='http://127.0.0.1:8769';
+const call=async(name,args)=>JSON.parse((await promisify(execFile)(join(installed,'runtime','node.exe'),[join(installed,'jev-use','cli.mjs'),name,JSON.stringify(args)],{windowsHide:true,timeout:30000})).stdout);
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1600,height:1000},userAgent:'Nexus QA NexusDesktop/1.0'});
+const tasks=async()=> (await (await page.request.get(origin+'/tasks')).json()).tasks;
+const wait=async(id,state)=>{for(let i=0;i<60;i++){const t=(await tasks()).find(x=>x.taskId===id);if(t?.state===state)return t;await new Promise(r=>setTimeout(r,500));}throw Error('Task did not reach '+state);};
+let running;
+try{
+ await page.goto(origin+'/?theme=light#/tasks');
+ await page.getByTestId('tasks').waitFor();
+ assert.equal((await page.request.get(origin+'/',{headers:{'User-Agent':'Ordinary browser'}})).status(),404);
+ const r=await call('nexus_start_task',{command:'Start-Sleep -Seconds 30; Write-Output NEXUS_TASK_UI_FIXTURE',shell:'powershell',idempotency_key:randomUUID()});
+ running=r.task_id;
+ assert.ok(running,JSON.stringify(r));
+ const t=await wait(running,'working');
+ assert.ok(t.traceId);
+ await page.getByRole('button',{name:'Inspect task '+running,exact:true}).click();
+ await page.getByRole('heading',{name:'Task inspector'}).waitFor();
+ await page.getByRole('link',{name:'Open related trace'}).click();
+ await page.getByTestId('observability').waitFor();
+ await page.goto(origin+'/?theme=light#/tasks');
+ await page.getByRole('button',{name:'Inspect task '+running,exact:true}).click();
+ await page.getByRole('button',{name:'Request cancellation'}).click();
+ await page.getByRole('button',{name:'Confirm cancellation'}).click();
+ await wait(running,'cancelled');
+ running=undefined;
+ const done=await call('nexus_start_task',{command:'Write-Output NEXUS_TASK_SUCCESS_FIXTURE',shell:'powershell',idempotency_key:randomUUID()});
+ await wait(done.task_id,'completed');
+ const output=await call('read_process_output',{session_id:done.task_id});
+ assert.match(JSON.stringify(output),/NEXUS_TASK_SUCCESS_FIXTURE/);
+ console.log('PASS installed desktop Tasks: live task, trace navigation, confirmed cancellation, completed result, legacy MCP fallback, ordinary browser rejected');
+}finally{
+ if(running)await call('force_terminate',{session_id:running}).catch(()=>{});
+ await browser.close();
+}

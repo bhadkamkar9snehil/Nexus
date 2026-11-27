@@ -1,5 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import {principal,taskMeta} from './task-state.mjs';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -47,7 +48,7 @@ async function allStates(): Promise<SessionState[]> {
   try {
     const entries = await readdir(base(), { withFileTypes: true });
     const results = await Promise.all(entries.filter(e => e.isDirectory() && validId(e.name))
-      .slice(0, MAX_SESSIONS + 100).map(e => stateById(e.name).catch(() => null)));
+      .map(e => stateById(e.name).catch(() => null)));
     return results.filter((r): r is SessionState => r !== null);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -70,9 +71,25 @@ async function resolveSession(selector: SessionSelector): Promise<SessionState> 
 }
 async function prune() {
   const states = await allStates();
-  const expired = states.filter(s => !live(s) && s.ended_at && Date.now() - s.ended_at > 7 * 86400000);
-  await Promise.all(expired.map(s => rm(workDir(s.session_id), { recursive: true, force: true })));
-  if (states.length - expired.length >= MAX_SESSIONS) throw new Error('Session registry full; remove completed old sessions');
+  const completed = states.filter(s => !live(s) && s.ended_at !== null)
+    .sort((a, b) => a.ended_at! - b.ended_at! || a.session_id.localeCompare(b.session_id));
+  const expiry = Date.now() - 7 * 86400000;
+  const expiredCount = completed.filter(s => s.ended_at! < expiry).length;
+  await Promise.all(completed.slice(0, expiredCount)
+    .map(s => rm(workDir(s.session_id), { recursive: true, force: true })));
+  const reclaimCount = states.length - expiredCount - MAX_SESSIONS + 1;
+  if (reclaimCount <= 0) return;
+  const archive = join(base(), 'archive');
+  await mkdir(archive, { recursive: true });
+  for (const session of completed.slice(expiredCount, expiredCount + reclaimCount)) {
+    try {
+      await rename(workDir(session.session_id), join(archive, session.session_id));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  if ((await allStates()).length >= MAX_SESSIONS)
+    throw new Error('Session registry full; wait for an active session to finish');
 }
 async function snapshot(session: SessionState, offset: number, length: number, charOffset = 0) {
   const raw = await readFile(join(workDir(session.session_id), 'output.log'), 'utf8').catch(() => '');
@@ -131,7 +148,7 @@ function validateSelector(args: SessionSelector) {
   if (args.pid !== undefined && !whole(args.pid, 1, 2147483647)) throw new Error('Invalid PID');
 }
 export async function startProcess(args: {
-  command: string; shell?: string; cwd?: string; timeout_ms?: number;
+  command: string; shell?: string; cwd?: string; timeout_ms?: number; task?: {key:string;client:string;traceId?:string};
 }) {
   if (typeof args.command !== 'string' || !args.command.trim() || args.command.length > 16384)
     throw new Error('command must contain 1–16384 characters');
@@ -142,16 +159,30 @@ export async function startProcess(args: {
   const cwd = args.cwd ?? homedir();
   if (!isAbsolute(cwd) || !(await stat(cwd).catch(() => null))?.isDirectory()) throw new Error('cwd must be an existing absolute directory');
   await mkdir(base(), { recursive: true });
+  const fingerprint=createHash('sha256').update(JSON.stringify([args.command,shell,cwd])).digest('hex');
+  const hex=args.task?createHash('sha256').update(principal()+'\0'+args.task.key).digest('hex'):'';
+  const id=args.task?hex.slice(0,8)+'-'+hex.slice(8,12)+'-4'+hex.slice(13,16)+'-a'+hex.slice(17,20)+'-'+hex.slice(20,32):randomUUID();
+  const folder=workDir(id);
+  const existing=async()=>{
+   let meta;
+   for(let i=0;i<20;i++){meta=await taskMeta(id).catch(()=>null);if(meta)break;await delay(50);}
+   if(!meta||meta.fingerprint!==fingerprint)throw new Error('Task key already used or launch not confirmed; inspect before retry');
+   const state=await stateById(id).catch(()=>null);
+   return {status:'done',session_id:id,pid:state?.pid??null,shell,state:state?.status??'starting',exit_code:state?.exit_code??null,task_id:id,decisions:0};
+  };
+  if(args.task&&existsSync(folder))return existing();
+  // Capacity reclaim moves finished records to archive/: their keys are still used, and a retry must not run the command again.
+  if(args.task&&existsSync(join(base(),'archive',id)))throw new Error('Task key already used by an archived task; inspect archive/'+id+' before starting it again under a new key');
   await prune();
-  const id = randomUUID();
-  const folder = workDir(id);
-  await mkdir(folder, { recursive: true });
+  try{await mkdir(folder);}catch(e){if(args.task&&(e as NodeJS.ErrnoException).code==='EEXIST')return existing();throw e;}
+  if(args.task)await writeFile(join(folder,'task.json'),JSON.stringify({version:1,taskId:id,owner:principal(),client:args.task.client.slice(0,100),createdAt:Date.now(),traceId:args.task.traceId,fingerprint}),{flag:'wx'});
   await writeFile(join(folder, 'launch.json'), JSON.stringify({ command: args.command, shell, cwd }), { flag: 'wx' });
   const child = spawn(process.execPath, [join(import.meta.dirname, 'terminal-worker.mjs'), folder], {
     detached: true, windowsHide: true, stdio: 'ignore',
     env: Object.fromEntries(Object.entries(process.env).filter(([k]) =>
       !/(TOKEN|PASSWORD|API_KEY|SECRET|AUTHORIZATION|CREDENTIAL)/i.test(k))),
   });
+  child.on('error',()=>{});
   if (!child.pid) throw new Error('Terminal worker failed to start');
   child.unref();
   let session: SessionState | undefined;
@@ -161,8 +192,9 @@ export async function startProcess(args: {
     if (session && session.status !== 'starting') break;
     await delay(60);
   }
+  if (!session&&args.task)return {status:'done',session_id:id,pid:null,shell,state:'starting',exit_code:null,task_id:id,decisions:0};
   if (!session) throw new Error('Terminal worker did not publish a session');
-  if (session.status === 'error') throw new Error(session.error || 'Terminal worker failed');
+  if (session.status === 'error'&&!args.task) throw new Error(session.error || 'Terminal worker failed');
   if (wait > 0 && live(session)) {
     const until = Date.now() + wait;
     while (Date.now() < until) {
@@ -175,7 +207,7 @@ export async function startProcess(args: {
   session = await stateById(id);
   const page = await snapshot(session, 0, 40);
   return { status: 'done', session_id: id, pid: session.pid, shell, state: session.status,
-    exit_code: session.exit_code, ...page, decisions: 0 };
+    exit_code: session.exit_code, ...page, ...(args.task?{task_id:id}:{}), decisions: 0 };
 }
 export async function readProcessOutput(args: SessionSelector & {
   offset?: number; length?: number; timeout_ms?: number; char_offset?: number;
@@ -220,6 +252,11 @@ export async function listSessions() {
     started_at: s.started_at, ended_at: s.ended_at, exit_code: s.exit_code,
     error: s.error, output_limited: s.output_limited,
   })), decisions: 0 };
+}
+export async function terminalTaskState(id:string){return stateById(id);}
+export async function requestSessionStop(id:string){
+ const state=await stateById(id).catch(()=>null);
+ if(!state||live(state))await writeFile(join(workDir(id),'stop'),'',{flag:'w'});
 }
 export async function forceTerminate(args: SessionSelector) {
   validateSelector(args);

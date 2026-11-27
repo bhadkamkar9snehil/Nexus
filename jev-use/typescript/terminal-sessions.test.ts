@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -55,6 +55,42 @@ test('paging retains a line completed after an earlier partial read', async () =
     if (id) await forceTerminate({ session_id: id }).catch(() => {});
     if (old === undefined) delete process.env.NEXUS_TERMINAL_DIR; else process.env.NEXUS_TERMINAL_DIR = old;
     await rm(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test('a full registry archives the oldest completed record and preserves active output', async () => {
+  const registry = await mkdtemp(join(tmpdir(), 'nexus-retention-'));
+  const old = process.env.NEXUS_TERMINAL_DIR;
+  process.env.NEXUS_TERMINAL_DIR = registry;
+  try {
+    const now = Date.now();
+    const ids = Array.from({ length: 64 }, (_, i) =>
+      `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    await Promise.all(ids.map(async (session_id, index) => {
+      const folder = join(registry, session_id);
+      await mkdir(folder);
+      const active = index === 0;
+      await writeFile(join(folder, 'state.json'), JSON.stringify({
+        session_id, shell: 'cmd', status: active ? 'running' : 'exited',
+        started_at: now - 64 + index, ended_at: active ? null : now - 64 + index,
+      }));
+      if (active) {
+        await writeFile(join(folder, 'heartbeat'), '');
+        await writeFile(join(folder, 'output.log'), 'active output\n');
+      }
+      if (index === 1) await writeFile(join(folder, 'output.log'), 'archived output\n');
+    }));
+    const run = await startProcess({ command: 'echo retention-ok', shell: 'cmd', cwd: registry });
+    assert.match((await waitForExit(run.session_id, registry)).content, /retention-ok/);
+    const retained = await listSessions();
+    assert.equal(retained.count, 64);
+    assert.ok(retained.sessions.some(s => s.session_id === ids[2]));
+    assert.ok(!retained.sessions.some(s => s.session_id === ids[1]));
+    assert.equal(await readFile(join(registry, 'archive', ids[1], 'output.log'), 'utf8'), 'archived output\n');
+    assert.equal((await readProcessOutput({ session_id: ids[0] })).content, 'active output');
+  } finally {
+    if (old === undefined) delete process.env.NEXUS_TERMINAL_DIR; else process.env.NEXUS_TERMINAL_DIR = old;
+    await rm(registry, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -236,5 +272,24 @@ test('terminal output evicts old data instead of growing indefinitely', async ()
     else process.env.NEXUS_TERMINAL_OUTPUT_LIMIT_BYTES = oldLimit;
     if (old === undefined) delete process.env.NEXUS_TERMINAL_DIR; else process.env.NEXUS_TERMINAL_DIR = old;
     await rm(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test('retrying an archived task key does not run the command again', async () => {
+  const registry = await mkdtemp(join(tmpdir(), 'nexus-task-archive-'));
+  const old = process.env.NEXUS_TERMINAL_DIR;
+  process.env.NEXUS_TERMINAL_DIR = registry;
+  try {
+    const marker = join(registry, 'runs.txt');
+    const args = { command: 'echo ran>>runs.txt', shell: 'cmd', cwd: registry, task: { key: 'archived-key-0000001', client: 'test' } };
+    const first = await startProcess(args);
+    await waitForExit(first.session_id, registry);
+    await mkdir(join(registry, 'archive'));
+    await rename(join(registry, first.session_id), join(registry, 'archive', first.session_id));
+    await assert.rejects(startProcess(args), /archived task/);
+    assert.equal((await readFile(marker, 'utf8')).trim(), 'ran');
+  } finally {
+    if (old === undefined) delete process.env.NEXUS_TERMINAL_DIR; else process.env.NEXUS_TERMINAL_DIR = old;
+    await rm(registry, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });

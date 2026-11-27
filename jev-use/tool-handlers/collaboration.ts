@@ -38,10 +38,10 @@ export function registerCollaborationTools(registry: ToolRegistry<ToolInvocation
           else throw new Error('Invalid action');
     return output;
   });
-  registry.bind('nexus_mail', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask }) => {
+  registry.bind('nexus_mail', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask,traceId,spanId }) => {
     let output: string;
     const action = (args.action as string | undefined) ?? 'inbox';
-          if (action === 'send') output = JSON.stringify({ status: 'done', ...await sendMessage(root, { to: required('to'), kind: args.kind as string | undefined, subject: args.subject as string | undefined, body: required('body', 64 * 1024) }) });
+          if (action === 'send') output = JSON.stringify({ status: 'done', ...await sendMessage(root, { to: required('to'), kind: args.kind as string | undefined, subject: args.subject as string | undefined, body: required('body', 64 * 1024),trace:traceId,parentSpanId:spanId }) });
           else if (action === 'wait') {
             // Realtime without protocol support: hold the call until a peer message is unread, then return it.
             const end = Date.now() + Math.min(Math.max((args.timeout_ms as number | undefined) ?? 30000, 1000), 55000);

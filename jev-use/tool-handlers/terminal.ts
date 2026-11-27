@@ -9,6 +9,11 @@ export function registerTerminalTools(registry: ToolRegistry<ToolInvocation>) {
     output = JSON.stringify(await startProcess({ command: args.command as string, shell: args.shell as string | undefined, cwd: args.cwd as string | undefined, timeout_ms: args.timeout_ms as number | undefined }));
     return output;
   });
+  registry.bind('nexus_start_task',async ({args,required,traceId,client})=>{
+   const key=required('idempotency_key',128);
+   if(!/^[A-Za-z0-9_.:-]{16,128}$/.test(key))throw new Error('Invalid idempotency_key');
+   return JSON.stringify(await startProcess({command:required('command',16384),shell:args.shell,cwd:args.cwd,timeout_ms:0,task:{key,client:client??'Unknown',traceId}}));
+  });
   registry.bind('read_process_output', async ({ name, args, required, limit, goal, addUsage, root, browserTask, desktopTask }) => {
     let output: string;
     output = JSON.stringify(await readProcessOutput({ session_id: args.session_id as string | undefined, pid: args.pid as number | undefined, offset: args.offset as number | undefined, length: args.length as number | undefined, timeout_ms: args.timeout_ms as number | undefined, char_offset: args.char_offset as number | undefined }));

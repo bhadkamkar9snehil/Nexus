@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/client';
@@ -10,6 +10,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 import { attachEvents } from './events-extension.js';
+import {attachTasks,supportsTasks,taskHandle} from './tasks-extension.js';
 import { attachClaudeChannel, CHANNEL_INSTRUCTIONS } from './channel.js';
 import { jevClient, toolKey, withToolKey } from './key-routing.js';
 import { chooseBoundedWithTypeSafe } from './typescript/jev_adapter.js';
@@ -167,13 +168,33 @@ function createServer() {
 const registry = createCoreRegistry();
 const mcp = new McpServer({ name: 'shared-jev', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: skills ? CHANNEL_INSTRUCTIONS + ' ' + SKILL_INSTRUCTIONS : CHANNEL_INSTRUCTIONS });
 const server = mcp.server;
+const FILES='io.modelcontextprotocol/files';
+server.registerCapabilities({extensions:{[FILES]:{maxInlineBytes:262144}}});
+const fields=(obj:unknown,allowed:readonly string[])=>{if(!obj||typeof obj!=='object')return [];return allowed.filter(k=>Object.hasOwn(obj,k)).slice(0,24).map(k=>{const v=(obj as Record<string,unknown>)[k];return {name:k,type:v===null?'null':Array.isArray(v)?'array':typeof v,...(typeof v==='string'?{bytes:Buffer.byteLength(v)}:Array.isArray(v)?{count:v.length}:{})};});};
 skills?.attach(mcp);
 attachEvents(server, root);
+attachTasks(server);
 attachClaudeChannel(server, root);
-server.setRequestHandler('tools/list', async () => ({ tools: registry.list() }));
-server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.name, async () => {
+server.setRequestHandler('tools/list', async (_request,ctx) => {const envelope=ctx.mcpReq.envelope as Record<string,any>|undefined;const cap=envelope?.clientCapabilities??envelope?.['io.modelcontextprotocol/clientCapabilities']??server.getClientCapabilities();const extension=cap?.extensions?.[FILES];return {tools:registry.list().filter(t=>t.name!=='nexus_upload_file'||(extension&&extension.revision===undefined))};});
+server.setRequestHandler('tools/call', async ({ params },ctx) => withToolKey(params.name, async () => {
   const id = randomUUID();
   const started = Date.now();
+  const monotonicStart=performance.now();
+  const envelope=ctx.mcpReq.envelope as Record<string,any>|undefined;
+  const client=envelope?.clientInfo??envelope?.['io.modelcontextprotocol/clientInfo']??server.getClientVersion();
+  const identity=String(client?.name??'Unknown').slice(0,100);
+  const clientVersion=String(client?.version??'').slice(0,60);
+  const traceParent=(params._meta as Record<string,unknown>|undefined)?.traceparent;
+  const traceMatch=typeof traceParent==='string'?/^00-([a-f0-9]{32})-([a-f0-9]{16})-[a-f0-9]{2}$/.exec(traceParent):null;
+  const incomingTrace=traceMatch?.[1]??process.env.NEXUS_TRACE_ID;
+  const traceId=incomingTrace&&/^[a-f0-9]{32}$/.test(incomingTrace)&&!/^0+$/.test(incomingTrace)?incomingTrace:randomBytes(16).toString('hex');
+  const parentSpanId=traceMatch?.[2]??process.env.NEXUS_PARENT_SPAN_ID;
+  const spanId=randomBytes(8).toString('hex');
+  const requestBytes=Buffer.byteLength(JSON.stringify(params.arguments??{}));
+  const requestFields=fields(params.arguments,Object.keys(registry.list().find(t=>t.name===params.name)?.inputSchema.properties??{}));
+  const usageSamples:{atMs:number;inputTokens:number;outputTokens:number}[]=[];
+  let executionMs:number|undefined;
+  let preparationMs:number|undefined;
   const monitored = registry.has(params.name) && !(['search_status','list_sessions'].includes(params.name) && process.env.HARNESS_MONITOR_OBSERVATION === '1');
   let inputTokens = 0, outputTokens = 0, usageResponses = 0;
   const addUsage = (value: unknown) => {
@@ -184,16 +205,17 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
     inputTokens += usage.input_tokens;
     outputTokens += usage.output_tokens;
     usageResponses++;
+    if(usageSamples.length<20)usageSamples.push({atMs:Math.round(performance.now()-monotonicStart),inputTokens:usage.input_tokens,outputTokens:usage.output_tokens});
   };
   const usageMetrics = (decisions?: number) => usageResponses || decisions === 0 ? {
-    inputTokens, outputTokens, usageResponses,
+    inputTokens, outputTokens, usageResponses, usageSamples,
     estimatedJevUsd: inputTokens * 0.042 / 1_000_000,
     usagePartial: decisions === undefined || decisions > usageResponses,
   } : {};
   const record = (details: object) => {
     if (!monitored) return;
     try {
-      appendFileSync(join(root, 'runs.jsonl'), JSON.stringify({ id, tool: params.name, at: Date.now(), ...details }) + '\n');
+      appendFileSync(join(root, 'runs.jsonl'), JSON.stringify({ id, tool: params.name, at: Date.now(), source:'mcp',spanId,client:identity, clientVersion,traceId:traceId&&/^[a-f0-9]{32}$/.test(traceId)?traceId:undefined,parentSpanId:parentSpanId&&/^[a-f0-9]{16}$/.test(parentSpanId)?parentSpanId:undefined,requestBytes, requestFields, ...details }) + '\n');
     } catch {
       console.error('Could not write SharedJev monitoring event');
     }
@@ -209,17 +231,25 @@ server.setRequestHandler('tools/call', async ({ params }) => withToolKey(params.
     const limit = args.max_steps ?? 10;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid max_steps');
     const decisionTool = ['jev_select_workflow','jev_rank_results','jev_classify_failure','jev_verify_result'].includes(params.name);
-    const goal = decisionTool || ['web_scrape', 'browser_read_page', 'jev_search_content', 'search_local', 'nexus_read_file', 'nexus_read_document', 'nexus_write_file','nexus_edit_file', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process', 'restart_application', 'restart_status', 'nexus_peers', 'nexus_mail', 'nexus_webhooks', 'nexus_events'].includes(params.name) ? '' : required('goal');
-    const output = await registry.execute(params.name, { name: params.name, args, required, limit, goal, addUsage, root, browserTask, desktopTask });
+    const goal = decisionTool || ['web_scrape', 'browser_read_page', 'jev_search_content', 'search_local', 'nexus_read_file', 'nexus_read_document', 'nexus_write_file','nexus_edit_file','nexus_transfer_file','nexus_upload_file', 'network_probe', 'find_files', 'search_status', 'map_files', 'start_process', 'nexus_start_task', 'read_process_output', 'interact_with_process', 'list_sessions', 'force_terminate', 'list_processes', 'kill_process', 'restart_application', 'restart_status', 'nexus_peers', 'nexus_mail', 'nexus_webhooks', 'nexus_events'].includes(params.name) ? '' : required('goal');
+    preparationMs=Math.round(performance.now()-monotonicStart);
+    const executionStart=performance.now();
+    const output = await registry.execute(params.name, { name: params.name, args, required, limit, goal, addUsage, root, browserTask, desktopTask,traceId,spanId,client:identity });
+    executionMs=Math.round(performance.now()-executionStart);
     let metrics;
     try { metrics = JSON.parse(output); } catch { metrics = {}; }
     const status = metrics.status === 'done' || metrics.status === 'verified' || (params.name === 'search_status' && metrics.status === 'idle') ? 'passed'
       : metrics.status && metrics.status !== 'error' ? 'blocked' : 'error';
     const decisions = metrics.decisions ?? metrics.calls;
-    record({ status, ms: Date.now() - started, decisions: decisions ?? null, steps: metrics.steps ?? metrics.trace?.length ?? null, backend: metrics.backend ?? null, session: metrics.session_id ?? metrics.session ?? null, ...usageMetrics(decisions) });
+    record({ status, ms: Math.round(performance.now()-monotonicStart), preparationMs, executionMs, responseBytes:Buffer.byteLength(output), responseFields:fields(metrics,['status','steps','decisions','calls','backend','session','bytes','sha256','action','truncated','content','blob','exit_code','pid','error','message','trace']), transferBytes:['nexus_transfer_file','nexus_upload_file'].includes(params.name)?metrics.bytes:undefined, transferDirection:['nexus_transfer_file','nexus_upload_file'].includes(params.name)?metrics.action:undefined, decisions: decisions ?? null, steps: metrics.steps ?? metrics.trace?.length ?? null, backend: metrics.backend ?? null, session: metrics.session_id ?? metrics.session ?? null, taskId:metrics.task_id??undefined, ...usageMetrics(decisions) });
+    if(params.name==='nexus_start_task'&&metrics.task_id&&supportsTasks(envelope,params._meta))return await taskHandle(metrics.task_id) as any;
+    if(params.name==='nexus_transfer_file'&&metrics.action==='download'&&typeof metrics.blob==='string'){
+      const {blob,...summary}=metrics;
+      return {content:[{type:'text' as const,text:JSON.stringify(summary)},{type:'resource' as const,resource:{uri:'nexus-file://transfer/'+id+'/'+encodeURIComponent(metrics.name),mimeType:'application/octet-stream',blob}}]};
+    }
     return { content: [{ type: 'text', text: output }] };
   } catch (error) {
-    record({ status: 'error', ms: Date.now() - started, ...usageMetrics() });
+    record({ status: 'error', ms: Math.round(performance.now()-monotonicStart), preparationMs, executionMs, errorType:error instanceof Error?error.name:'UnknownError', ...usageMetrics() });
     return { isError: true, content: [{ type: 'text', text: String(error) }] };
   }
 }));
