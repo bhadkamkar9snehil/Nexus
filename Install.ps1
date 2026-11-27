@@ -69,6 +69,10 @@ try {
 & (Join-Path $PSScriptRoot 'Test-Package.ps1')
 if ($RegisterAgents) {
     $launcher = Join-Path $PSScriptRoot 'jev-use\start.mjs'
+    if (Get-Command claude -ErrorAction SilentlyContinue) {
+        & $node (Join-Path $PSScriptRoot 'nexus-hook.mjs') install
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'Claude Code hooks were not registered; run nexus-hook.mjs install.' }
+    }
     foreach ($agent in 'codex','claude') {
         if (-not (Get-Command $agent -ErrorAction SilentlyContinue)) { continue }
         foreach ($name in 'shared_jev','shared_cua') {

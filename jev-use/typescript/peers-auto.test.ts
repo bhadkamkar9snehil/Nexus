@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPairingCode, discoverAndPair, handleHello, handlePair, pairWithCode } from '../../peers-auto.mjs';
 import { addPeer, getPeer, listPeers, readMailbox, selfName, sendMessage, setPeer } from '../../peers.mjs';
-import { respondTo } from '../../agent-responder.mjs';
+import { claudeArgs, respondTo } from '../../agent-responder.mjs';
 
 const OWNER = 1, OTHER = 2;
 // A fake tailnet as seen from one device: Self plus peers with owners, online state and OS.
@@ -112,6 +112,10 @@ test('the agent responder answers chat from own devices, stops at NO_REPLY and t
   assert.equal(await respondTo(root, msg({}), { send }), 'replied');
   assert.deepEqual(sent.map(m => [m.to, m.kind, m.hop]), [['laptop', 'chat', 1]]);
   assert.equal(sent[0].body, 'Done: build the release');
+  const [mate, mine] = [claudeArgs('safe', false), claudeArgs('safe', true)];
+  assert.equal(mate[mate.indexOf('--tools') + 1], 'ToolSearch');
+  assert.ok(mate.includes('--strict-mcp-config') && !mate.join().includes('shared_jev') && !mate.join().includes('gbrain'), 'teammates get lookups only');
+  assert.ok(mine[2].includes('mcp__gbrain__search') && mine[2].includes('mcp__gitlab__list_issues'));
   assert.equal(await respondTo(root, msg({ body: 'ok thanks!' }), { send }), 'finished');
   assert.equal(await respondTo(root, msg({ hop: 3 }), { send }), 'hop limit reached');
   assert.equal(await respondTo(root, msg({ peer: 'stranger' }), { send }), 'replied'); // every connected peer is answered, not only own devices
