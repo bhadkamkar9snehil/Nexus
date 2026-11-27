@@ -3,6 +3,7 @@ import { createPairingCode, discoverAndPair, localAddresses, pairWithCode, runTa
 import { listPeers, mailboxSummary, markRead, readMailbox, removePeer, selfName, sendMessage, setPeer } from './peers.mjs';
 import { loadResponderConfig, saveResponderConfig } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
+import { discoverSessions } from './sessions.mjs';
 
 const fail = (status, message) => ({ status, json: { error: message } });
 const responderState = ({ enabled, autonomy }) => ({ enabled, autonomy });
@@ -41,6 +42,7 @@ export async function handleApi(root, method, url, body, { run = runTailscale, f
       return { status: 200, json: { messages: all } };
     }
     if (method === 'GET' && path === '/api/responder') return { status: 200, json: responderState(await loadResponderConfig(root)) };
+    if (method === 'GET' && path === '/api/sessions') return { status: 200, json: { sessions: await discoverSessions(root) } };
     if (method !== 'POST') return fail(404, 'Not found');
 
     if (path === '/api/peers/code') return { status: 200, json: await createPairingCode(root, run, body.autoReply) };
