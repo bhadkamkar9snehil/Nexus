@@ -75,10 +75,12 @@ lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/chevron-left.js:
 lucide-react/dist/esm/icons/chevron-right.js:
 lucide-react/dist/esm/icons/clock-3.js:
+lucide-react/dist/esm/icons/code-xml.js:
 lucide-react/dist/esm/icons/coins.js:
 lucide-react/dist/esm/icons/copy.js:
 lucide-react/dist/esm/icons/download.js:
 lucide-react/dist/esm/icons/external-link.js:
+lucide-react/dist/esm/icons/eye.js:
 lucide-react/dist/esm/icons/gauge.js:
 lucide-react/dist/esm/icons/heart-pulse.js:
 lucide-react/dist/esm/icons/history.js:
@@ -103,6 +105,8 @@ lucide-react/dist/esm/icons/trash-2.js:
 lucide-react/dist/esm/icons/webhook.js:
 lucide-react/dist/esm/icons/wrench.js:
 lucide-react/dist/esm/icons/x.js:
+lucide-react/dist/esm/icons/zoom-in.js:
+lucide-react/dist/esm/icons/zoom-out.js:
 lucide-react/dist/esm/lucide-react.js:
   /**
    * @license lucide-react v0.563.0 - ISC

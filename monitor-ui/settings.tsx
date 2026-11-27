@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useState} from 'react';
-import {BookOpen,Check,ExternalLink,KeyRound,Moon,Palette,Settings,Sun,Wrench} from 'lucide-react';
+import {BookOpen,Check,ExternalLink,History,KeyRound,Moon,Palette,Settings,Sun,Trash2,Wrench} from 'lucide-react';
 import {Panel} from './upstream/viz';
 import {Button} from './upstream/button';
+import {api} from './mail';
 import {cn} from './utils';
 
 const swatches=['#4ceea8','#4cd9ee','#6aa8ff','#a78bfa','#f472b6','#fbbf24','#fb923c'];
@@ -47,8 +48,83 @@ function Keys(){
   <Note text={note}/></div></Panel>;
 }
 
+type MailSettings={retentionDays:number;maxMessages:number};
+type MailStats={totalMessages:number;fileBytes:number;oldestAt:number|null;newestAt:number|null};
+
+function formatBytes(bytes:number){
+ if(bytes<1024)return `${bytes} B`;
+ if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
+ return `${(bytes/(1024*1024)).toFixed(2)} MB`;
+}
+
+function MailboxHistory(){
+ const [retentionDays,setRetentionDays]=useState('30');
+ const [maxMessages,setMaxMessages]=useState('200');
+ const [stats,setStats]=useState<MailStats|null>(null);
+ const [note,setNote]=useState('');
+ const [busy,setBusy]=useState(false);
+
+ const load=useCallback(async()=>{
+  try{
+   const r=await api('/api/mail/settings') as {settings:MailSettings;stats:MailStats};
+   setRetentionDays(String(r.settings.retentionDays));
+   setMaxMessages(String(r.settings.maxMessages));
+   setStats(r.stats);
+  }catch(e){setNote((e as Error).message);}
+ },[]);
+
+ useEffect(()=>{void load();},[load]);
+
+ async function save(){
+  setBusy(true);setNote('');
+  try{
+   const r=await api('/api/mail/settings',{retentionDays:Number(retentionDays),maxMessages:Number(maxMessages)}) as {settings:MailSettings;stats:MailStats;pruned:number};
+   setRetentionDays(String(r.settings.retentionDays));
+   setMaxMessages(String(r.settings.maxMessages));
+   setStats(r.stats);
+   setNote(r.pruned>0?`Saved. Pruned ${r.pruned} expired message(s).`:'Chat history settings saved.');
+  }catch(e){setNote((e as Error).message);}
+  finally{setBusy(false);}
+ }
+
+ async function compact(){
+  setBusy(true);setNote('');
+  try{
+   const r=await api('/api/mail/compact',{}) as {stats:MailStats;pruned:number};
+   setStats(r.stats);
+   setNote(r.pruned>0?`Pruned ${r.pruned} expired message(s).`:'No expired messages to prune.');
+  }catch(e){setNote((e as Error).message);}
+  finally{setBusy(false);}
+ }
+
+ return <Panel icon={History} title="Chat & mailbox history" meta={stats?`${stats.totalMessages} stored · ${formatBytes(stats.fileBytes)}`:'Server-managed'}>
+  <div className="max-w-xl space-y-4">
+   <p className="text-xs text-muted-foreground">Messages are stored on this computer in the local mailbox. Retention prunes messages older than the configured days; display limit controls how many recent messages load per conversation.</p>
+   <div className="grid gap-4 sm:grid-cols-2">
+    <label className="space-y-1.5 text-sm">
+     <span className="block font-medium">Keep history (days)</span>
+     <input type="number" min={0} max={3650} className={field} value={retentionDays} onChange={e=>setRetentionDays(e.target.value)} disabled={busy}/>
+     <span className="block text-2xs text-muted-foreground">0 = keep forever (default 30 days)</span>
+    </label>
+    <label className="space-y-1.5 text-sm">
+     <span className="block font-medium">Messages per conversation</span>
+     <input type="number" min={50} max={2000} className={field} value={maxMessages} onChange={e=>setMaxMessages(e.target.value)} disabled={busy}/>
+     <span className="block text-2xs text-muted-foreground">50 to 2000 (default 200)</span>
+    </label>
+   </div>
+   {stats?.oldestAt&&<p className="text-2xs text-muted-foreground">Oldest stored message: {new Date(stats.oldestAt).toLocaleString()}</p>}
+   <div className="flex flex-wrap gap-2">
+    <Button size="sm" disabled={busy} onClick={()=>void save()}>Save history settings</Button>
+    <Button size="sm" variant="outline" disabled={busy} onClick={()=>void compact()}><Trash2/>Prune expired now</Button>
+   </div>
+   <Note text={note}/>
+  </div>
+ </Panel>;
+}
+
 export function SettingsView({accent,setAccent,dark,theme}:{accent:string;setAccent:(c:string)=>void;dark:boolean;theme:()=>void}){
  return <><Panel icon={Palette} title="Appearance" meta="Theme and accent colour"><div className="max-w-xl space-y-6"><div className="flex items-center justify-between gap-4"><span className="text-sm">Theme</span><Button variant="outline" size="sm" onClick={theme}>{dark?<Sun/>:<Moon/>}{dark?'Use light theme':'Use dark theme'}</Button></div><fieldset><legend className="mb-3 text-sm">Accent colour</legend><div className="flex flex-wrap gap-2">{swatches.map(c=><button key={c} aria-label={`Use ${c}`} aria-pressed={accent===c} onClick={()=>setAccent(c)} className={cn('grid size-8 place-items-center rounded-full ring-offset-2 ring-offset-surface',accent===c&&'ring-2 ring-foreground')} style={{background:c}}>{accent===c&&<Check className="size-4 text-black"/>}</button>)}<input type="color" aria-label="Custom colour" value={accent} onChange={e=>setAccent(e.target.value)} className="size-8 rounded-full border bg-transparent"/></div></fieldset></div></Panel>
+  <MailboxHistory/>
   <Keys/>
   <Panel icon={BookOpen} title="Usage guide" meta="Keep credentials and sessions on this computer"><ol className="max-w-3xl space-y-5 text-sm">{steps.map((s,i)=><li className="flex gap-3" key={s.title}><span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-xs tabular-nums text-muted-foreground">{i+1}</span><div><h3 className="font-medium">{s.title}</h3><p className="mt-1 text-meta leading-6 text-muted-foreground">{s.body}</p></div></li>)}</ol><a href="http://10.2.6.112:8080/ssm/shared-computer-use" target="_blank" rel="noreferrer" className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-signal underline-offset-4 hover:underline">Open the complete team guide<ExternalLink className="size-3.5"/></a></Panel></>;
 }

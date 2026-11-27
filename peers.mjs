@@ -2,12 +2,13 @@
 // switch and permissions. Mail and chat travel over HTTP to the peer's receiver (the webhook port) and are kept in a local mailbox.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { beginPeerSpan, traceId, validTrace, validSpan, validMessage } from './peer-telemetry.mjs';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
 const kinds = ['mail', 'chat'];
 const maxBody = 64 * 1024;
+const DEFAULT_MAILBOX_SETTINGS = { retentionDays: 30, maxMessages: 200 };
 const folder = (root) => process.env.NEXUS_PEERS_DIR || join(root, 'secrets');
 const file = (root, name) => join(folder(root), name);
 
@@ -83,9 +84,75 @@ async function mailbox(root) {
   return messages.map(m => ({ ...m, read: read.has(m.id) }));
 }
 
-export async function readMailbox(root, { box = 'in', peer, unread = false, limit = 50 } = {}) {
-  return (await mailbox(root)).filter(m => m.box === box && (!peer || m.peer === peer) && !(unread && m.read))
-    .reverse().slice(0, Math.min(Math.max(limit, 1), 200));
+export async function loadMailboxSettings(root) {
+  let raw = {};
+  try { raw = JSON.parse(await readFile(file(root, 'mailbox-settings.json'), 'utf8')); } catch { /* defaults */ }
+  const retentionDays = Number.isInteger(raw.retentionDays) && raw.retentionDays >= 0 && raw.retentionDays <= 3650 ? raw.retentionDays : DEFAULT_MAILBOX_SETTINGS.retentionDays;
+  const maxMessages = Number.isInteger(raw.maxMessages) && raw.maxMessages >= 50 && raw.maxMessages <= 2000 ? raw.maxMessages : DEFAULT_MAILBOX_SETTINGS.maxMessages;
+  return { retentionDays, maxMessages };
+}
+
+export async function saveMailboxSettings(root, { retentionDays, maxMessages } = {}) {
+  const current = await loadMailboxSettings(root);
+  const next = { ...current };
+  if (retentionDays !== undefined) {
+    const n = Number(retentionDays);
+    if (!Number.isInteger(n) || n < 0 || n > 3650) throw new Error('retentionDays must be an integer 0-3650 (0 = keep forever)');
+    next.retentionDays = n;
+  }
+  if (maxMessages !== undefined) {
+    const n = Number(maxMessages);
+    if (!Number.isInteger(n) || n < 50 || n > 2000) throw new Error('maxMessages must be an integer 50-2000');
+    next.maxMessages = n;
+  }
+  await mkdir(folder(root), { recursive: true });
+  await writeFile(file(root, 'mailbox-settings.json'), JSON.stringify(next, null, 2));
+  return next;
+}
+
+export async function mailboxStats(root) {
+  const messages = await mailbox(root);
+  let fileBytes = 0;
+  try { fileBytes = (await stat(file(root, 'mailbox.jsonl'))).size; } catch { /* no file yet */ }
+  let oldestAt = null, newestAt = null;
+  for (const m of messages) {
+    if (typeof m.at === 'number') {
+      if (oldestAt === null || m.at < oldestAt) oldestAt = m.at;
+      if (newestAt === null || m.at > newestAt) newestAt = m.at;
+    }
+  }
+  return { totalMessages: messages.length, fileBytes, oldestAt, newestAt };
+}
+
+export async function compactMailbox(root, retentionDays) {
+  const settings = retentionDays === undefined ? await loadMailboxSettings(root) : { retentionDays };
+  const days = settings.retentionDays;
+  const messages = await mailbox(root);
+  const cutoff = days > 0 ? Date.now() - days * 86_400_000 : 0;
+  const kept = cutoff > 0 ? messages.filter(m => (m.at ?? 0) >= cutoff) : messages;
+  const pruned = messages.length - kept.length;
+  if (pruned <= 0 && messages.length > 0) {
+    // Also compact if read-marker lines have grown large without any pruned messages, only when explicitly requested or pruned > 0.
+    return { pruned: 0, remaining: kept.length };
+  }
+  if (messages.length === 0) return { pruned: 0, remaining: 0 };
+  const lines = [];
+  for (const m of kept) {
+    const { read, ...rest } = m;
+    lines.push(JSON.stringify(rest));
+    if (read) lines.push(JSON.stringify({ read: m.id }));
+  }
+  await mkdir(folder(root), { recursive: true });
+  const tmp = file(root, `mailbox.${randomBytes(4).toString('hex')}.tmp`);
+  await writeFile(tmp, lines.length ? lines.join('\n') + '\n' : '');
+  await rename(tmp, file(root, 'mailbox.jsonl'));
+  return { pruned, remaining: kept.length };
+}
+
+export async function readMailbox(root, { box = 'in', peer, unread = false, limit = 50, sinceAt = 0 } = {}) {
+  return (await mailbox(root))
+    .filter(m => m.box === box && (!peer || m.peer === peer) && !(unread && m.read) && (!sinceAt || (m.at ?? 0) >= sinceAt))
+    .reverse().slice(0, Math.min(Math.max(limit, 1), 2000));
 }
 
 export async function mailboxSummary(root) {
@@ -106,9 +173,15 @@ export async function markRead(root, ids) {
   await appendFile(file(root, 'mailbox.jsonl'), ids.map(read => JSON.stringify({ read }) + '\n').join(''));
 }
 
+let lastCompactAt = 0;
 async function store(root, message) {
   await mkdir(folder(root), { recursive: true });
   await appendFile(file(root, 'mailbox.jsonl'), JSON.stringify(message) + '\n');
+  if (Date.now() - lastCompactAt > 3_600_000) {
+    lastCompactAt = Date.now();
+    const { retentionDays } = await loadMailboxSettings(root);
+    if (retentionDays > 0) await compactMailbox(root, retentionDays).catch(() => {});
+  }
 }
 
 function validate({ kind, subject, body, hop }) {

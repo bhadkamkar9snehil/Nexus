@@ -3,6 +3,7 @@ import { ArrowLeft, Bell, Bot, Monitor, Search, Send, Settings2 } from 'lucide-r
 import { Button } from './upstream/button';
 import { cn } from './utils';
 import { Chip, Kind, Msg, Peer, Summary, api, describe, field, peerStatus, time, usePeerInfo } from './mail';
+import { RichMessage } from './rich-message';
 
 // A messaging page: the list and the thread fill the window, the thread scrolls inside, the composer stays put.
 export function InboxView({ peer, open }: { peer: string; open: (name: string) => void }) {
@@ -121,8 +122,8 @@ function Message({ m, name }: { m: Msg; name: string }) {
       <time dateTime={new Date(m.at).toISOString()}>{time(m.at)}</time>
       {auto && <span className="inline-flex items-center gap-1"><Bot className="size-3" aria-hidden="true" />Agent replied automatically</span>}
     </header>
-    {d.title && <p className="break-words font-medium">{d.title}</p>}
-    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{d.detail}</p>
+    {d.title && <p className="mb-1 break-words font-medium">{d.title}</p>}
+    <RichMessage text={d.detail} />
   </article>;
 }
 

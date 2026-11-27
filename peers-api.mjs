@@ -1,6 +1,6 @@
 // JSON API behind the Peers page of the monitor UI (loopback only, same-origin requests with an X-Nexus header).
 import { createPairingCode, discoverAndPair, localAddresses, pairWithCode, runTailscale, tailnet } from './peers-auto.mjs';
-import { listPeers, mailboxSummary, markRead, readMailbox, removePeer, selfName, sendMessage, setPeer } from './peers.mjs';
+import { compactMailbox, listPeers, loadMailboxSettings, mailboxStats, mailboxSummary, markRead, readMailbox, removePeer, saveMailboxSettings, selfName, sendMessage, setPeer } from './peers.mjs';
 import { loadResponderConfig, saveResponderConfig } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
 import { discoverSessions } from './sessions.mjs';
@@ -35,15 +35,31 @@ export async function handleApi(root, method, url, body, { run = runTailscale, f
     }
     if (method === 'GET' && path === '/api/mail') {
       if (url.searchParams.has('summary')) return { status: 200, json: { threads: await mailboxSummary(root) } };
+      const settings = await loadMailboxSettings(root);
       const peer = url.searchParams.get('peer');
-      const limit = Math.min(Number(url.searchParams.get('limit')) || 200, 200);
-      const all = [...await readMailbox(root, { box: 'in', peer, limit }), ...await readMailbox(root, { box: 'out', peer, limit })]
+      const limit = Math.min(Number(url.searchParams.get('limit')) || settings.maxMessages, 2000);
+      const sinceAt = settings.retentionDays > 0 ? Date.now() - settings.retentionDays * 86_400_000 : 0;
+      const all = [...await readMailbox(root, { box: 'in', peer, limit, sinceAt }), ...await readMailbox(root, { box: 'out', peer, limit, sinceAt })]
         .sort((a, b) => a.at - b.at).slice(-limit);
       return { status: 200, json: { messages: all } };
+    }
+    if (method === 'GET' && path === '/api/mail/settings') {
+      return { status: 200, json: { settings: await loadMailboxSettings(root), stats: await mailboxStats(root) } };
     }
     if (method === 'GET' && path === '/api/responder') return { status: 200, json: responderState(await loadResponderConfig(root)) };
     if (method === 'GET' && path === '/api/sessions') return { status: 200, json: { sessions: await discoverSessions(root) } };
     if (method !== 'POST') return fail(404, 'Not found');
+
+    if (path === '/api/mail/settings') {
+      const settings = await saveMailboxSettings(root, { retentionDays: body.retentionDays, maxMessages: body.maxMessages });
+      const { pruned } = settings.retentionDays > 0 ? await compactMailbox(root, settings.retentionDays) : { pruned: 0 };
+      return { status: 200, json: { settings, stats: await mailboxStats(root), pruned } };
+    }
+    if (path === '/api/mail/compact') {
+      const settings = await loadMailboxSettings(root);
+      const { pruned } = await compactMailbox(root, settings.retentionDays);
+      return { status: 200, json: { settings, stats: await mailboxStats(root), pruned } };
+    }
 
     if (path === '/api/peers/code') return { status: 200, json: await createPairingCode(root, run, body.autoReply) };
     if (path === '/api/peers/pair') return { status: 200, json: await pairWithCode(root, String(body.code ?? ''), { autoReply: body.autoReply }) };
