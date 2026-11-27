@@ -26,7 +26,7 @@ test('image pipeline, privacy, multipart, cache, abstention, local assets and di
     process.env.NEXUS_VISUAL_OUTBOUND_ROOTS=dir;
     await assert.rejects(visualTool('visual_verify',{path,question:'Red?'},dir,()=>{}),/task authorization/);
     const img=await loadVisual(path,true), p=await prepare(img);
-    assert.equal(p.sentWidth,280); assert.equal(p.sentHeight,280);
+    assert.equal(p.sentWidth,560); assert.equal(p.sentHeight,280);
     assert.deepEqual(boxToPixels({left:0,top:0,right:1,bottom:1},p,img),{left:0,top:0,width:100,height:50});
     assert.throws(()=>boxToPixels({left:0.9,right:0.1,top:0,bottom:1},p,img),/Invalid/);
     let requests=0,usage=0;

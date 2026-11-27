@@ -55,7 +55,10 @@ export async function decodeVisual(bytes:Buffer):Promise<Image>{
   return { bytes: oriented.data, sha256: hash(oriented.data), width: oriented.info.width, height: oriented.info.height };
 }
 export async function prepare(image: Image) {
-  const resized = await sharp(image.bytes).resize(1568, 1568, { fit: 'inside', withoutEnlargement: true }).png().toBuffer({ resolveWithObject: true });
+  // Small crops must occupy the model canvas instead of being mostly padding.
+  const longEdge = Math.max(image.width,image.height);
+  const target = Math.min(1568,Math.max(560,longEdge));
+  const resized = await sharp(image.bytes).resize(target,target,{fit:'inside',kernel:'lanczos3'}).png().toBuffer({resolveWithObject:true});
   const { width, height } = resized.info;
   const left = Math.floor(Math.max(0, 280 - width) / 2), top = Math.floor(Math.max(0, 280 - height) / 2);
   const right = Math.max(0, 280 - width) - left, bottom = Math.max(0, 280 - height) - top;
@@ -77,7 +80,7 @@ export async function infer(images: Image[], questions: Record<string, Question>
   if (images.length < 1 || images.length > 4 || Object.keys(questions).length > 12) throw new Error('Visual request bounds exceeded');
   const prepared = await Promise.all(images.map(prepare));
   if (prepared.reduce((s,i)=>s+i.bytes.length,0)>20*1024*1024) throw new Error('Visual request too large');
-  const key = hash(JSON.stringify([MODEL,'visual-transform-v2',images.map(i=>i.sha256),questions]));
+  const key = hash(JSON.stringify([MODEL,'visual-transform-v3',images.map(i=>i.sha256),questions]));
   const previous = cache.get(key);
   if (previous) return { reply: previous, cache_hit:true, prepared };
   const state: Record<string,string> = {}, assets: Record<string,object> = {};
