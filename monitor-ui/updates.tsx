@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useState} from 'react';
+import {apiUrl} from './data';
 import {ArrowDownToLine,Check,Copy,History,RefreshCw,RotateCcw,Webhook} from 'lucide-react';
 import {Panel} from './upstream/viz';
 import {Button} from './upstream/button';
@@ -27,7 +28,7 @@ export function UpdatesView(){
     ? {tag:previous.tag,message:e.data.message,percent:typeof e.data.percent==='number'?e.data.percent:null}
     : previous);
  };h.addEventListener('message',on);return()=>h.removeEventListener('message',on);},[load]);
- useEffect(()=>{let stop=false;const t=async()=>{try{const r=await fetch('/webhook-events');if(r.ok&&!stop)Events((await r.json()).events);}catch{}};t();const i=setInterval(t,10000);return()=>{stop=true;clearInterval(i);};},[]);
+ useEffect(()=>{let stop=false;const t=async()=>{try{const r=await fetch(apiUrl('/webhook-events'));if(r.ok&&!stop)Events((await r.json()).events);}catch{}};t();const i=setInterval(t,10000);return()=>{stop=true;clearInterval(i);};},[]);
  const install=async(r:Rel)=>{
   if(!r.newer&&!confirm(`Roll back to ${r.tag}? This turns off automatic updates.`))return;
   InstallError('');Note('');Installing({tag:r.tag,message:'Preparing the update',percent:null});

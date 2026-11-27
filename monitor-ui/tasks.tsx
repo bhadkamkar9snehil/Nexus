@@ -1,14 +1,15 @@
 import {useEffect,useMemo,useState} from 'react';
+import {apiUrl} from './data';
 import {Button} from './upstream/button';
 type Task={taskId:string;owner:string;client:string;device:string;type:string;traceId?:string;createdAt:number;updatedAt:number;state:string;exitCode:number|null;pid:number|null;cancelPending:boolean;outputLimited:boolean};
 const date=(n:number)=>new Date(n).toLocaleString();
 const status=(t:Task)=>t.cancelPending?'Cancellation requested':t.state==='working'?'Running':t.state==='cancelled'?'Cancelled':t.state==='completed'?(t.exitCode===0?'Completed':'Command failed'):t.state==='unconfirmed'?'Unconfirmed':'Worker error';
 export function TasksView(){
  const [tasks,Tasks]=useState<Task[]>([]),[loaded,Loaded]=useState(false),[error,ErrorText]=useState(''),[query,Q]=useState(''),[filter,F]=useState('all'),[selected,S]=useState(''),[confirm,C]=useState(''),[busy,B]=useState(false),[actionError,A]=useState('');
- useEffect(()=>{let stop=false,timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const r=await fetch('/tasks');if(!r.ok)throw Error();const data=await r.json();if(!stop){Tasks(data.tasks);Loaded(true);ErrorText('');}}catch{if(!stop)ErrorText('Task registry unavailable. Showing last received data.');}if(!stop)timer=setTimeout(poll,2000);};poll();return()=>{stop=true;clearTimeout(timer);};},[]);
+ useEffect(()=>{let stop=false,timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const r=await fetch(apiUrl('/tasks'));if(!r.ok)throw Error();const data=await r.json();if(!stop){Tasks(data.tasks);Loaded(true);ErrorText('');}}catch{if(!stop)ErrorText('Task registry unavailable. Showing last received data.');}if(!stop)timer=setTimeout(poll,2000);};poll();return()=>{stop=true;clearTimeout(timer);};},[]);
  const filtered=useMemo(()=>tasks.filter(t=>(filter==='all'||t.state===filter)&&[t.taskId,t.client,t.device,t.type,status(t),t.traceId].join(' ').toLowerCase().includes(query.toLowerCase())),[tasks,filter,query]);
  const task=tasks.find(t=>t.taskId===selected);
- const cancel=async()=>{if(!task||confirm!==task.taskId||busy)return;B(true);A('');try{const r=await fetch('/api/tasks/cancel',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus':'1'},body:JSON.stringify({taskId:task.taskId})});if(!r.ok)throw Error('Cancellation request not accepted');Tasks(old=>old.map(t=>t.taskId===task.taskId?{...t,cancelPending:true}:t));C('');}catch(e){A(String(e));}finally{B(false);}};
+ const cancel=async()=>{if(!task||confirm!==task.taskId||busy)return;B(true);A('');try{const r=await fetch(apiUrl('/api/tasks/cancel'),{method:'POST',headers:{'Content-Type':'application/json','X-Nexus':'1'},body:JSON.stringify({taskId:task.taskId})});if(!r.ok)throw Error('Cancellation request not accepted');Tasks(old=>old.map(t=>t.taskId===task.taskId?{...t,cancelPending:true}:t));C('');}catch(e){A(String(e));}finally{B(false);}};
  return <section data-testid="tasks" className="space-y-3">
  <p className="text-sm text-muted-foreground">Managed terminal tasks survive MCP reconnects. Running tasks have no invented progress percentage.</p>
  {error&&<p role="alert" className="border bg-surface p-3 text-sm text-destructive">{error}</p>}

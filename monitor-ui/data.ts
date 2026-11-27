@@ -15,4 +15,5 @@ export const money=(n:number)=>'$'+n.toFixed(n<.01?6:4);
 export const number=(n:number)=>new Intl.NumberFormat('en',{notation:n>=100000?'compact':'standard',maximumFractionDigits:1}).format(n);
 export const seconds=(ms:number)=>ms<1000?Math.round(ms)+' ms':(ms/1000).toFixed(2)+' s';
 export const quantile=(values:number[],p:number)=>{const s=[...values].sort((a,b)=>a-b);if(!s.length)return null;const at=(s.length-1)*p,lower=Math.floor(at);return s[lower]+(at-lower)*(s[Math.min(s.length-1,lower+1)]-s[lower]);};
+export const apiUrl=(path:string)=>typeof location!=='undefined'&&location.origin==='http://127.0.0.1:8769'?path:'http://127.0.0.1:8769'+path;
 export const tones:Record<string,string>={passed:'bg-success-soft text-success',healthy:'bg-success-soft text-success',ready:'bg-info-soft text-info',configured:'bg-info-soft text-info',blocked:'bg-warning-soft text-warning',attention:'bg-warning-soft text-warning',error:'bg-destructive-soft text-destructive',running:'bg-info-soft text-info',idle:'bg-surface-3 text-muted-foreground',unknown:'bg-surface-3 text-muted-foreground',unconfirmed:'bg-surface-3 text-muted-foreground'};

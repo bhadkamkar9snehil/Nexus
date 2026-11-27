@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { apiUrl } from './data';
 import { cn } from './utils';
 
 export type Kind = 'chat' | 'mail';
@@ -15,7 +16,7 @@ export const time = (at: number) => new Date(at).toLocaleString([], { month: 'sh
 export const peerStatus = (p: Peer) => !p.enabled ? 'Disabled' : !p.paired ? 'Pairing' : p.online === null ? 'Paired' : p.online ? 'Online' : 'Offline';
 
 export async function api(path: string, body?: object) {
-  const response = await fetch(path, body === undefined ? {} : {
+  const response = await fetch(apiUrl(path), body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexus': '1' }, body: JSON.stringify(body),
   });
   const result = await response.json().catch(() => ({}));

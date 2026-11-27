@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {Activity,ArrowDown,ArrowUp,Bot,ChevronLeft,ChevronRight,Globe,HeartPulse,Monitor,RefreshCw,Search,ShieldCheck,Wrench,X} from 'lucide-react';
 import {Panel,IconTile,SegmentBar} from './upstream/viz';
 import {Button} from './upstream/button';
-import {Run,Runtime,Tool,names,group,seconds,number,money,quantile} from './data';
+import {Run,Runtime,Tool,apiUrl,names,group,seconds,number,money,quantile} from './data';
 import {Facts,State} from './widgets';
 import {cn} from './utils';
 const control='h-8 min-w-0 rounded-md border bg-surface px-2 text-xs text-foreground placeholder:text-subtle-foreground';
@@ -60,6 +60,6 @@ function Sessions() {
 }
 function SessionsPanel() {
  const [sessions,SetSessions]=useState<{session_id:string;pid:number|null;shell:string;state:string;started_at:number;ended_at:number|null;exit_code:number|null}[]|null>(null),[sessionError,SetSessionError]=useState(false);
- useEffect(()=>{let stopped=false;let timer:ReturnType<typeof setTimeout>;const refresh=async()=>{try{const r=await fetch('/sessions');if(!r.ok)throw new Error();const data=await r.json();if(!stopped){SetSessions(data.sessions);SetSessionError(false);}}catch{if(!stopped)SetSessionError(true);}if(!stopped)timer=setTimeout(refresh,10000);};refresh();return()=>{stopped=true;clearTimeout(timer);};},[]);
+ useEffect(()=>{let stopped=false;let timer:ReturnType<typeof setTimeout>;const refresh=async()=>{try{const r=await fetch(apiUrl('/sessions'));if(!r.ok)throw new Error();const data=await r.json();if(!stopped){SetSessions(data.sessions);SetSessionError(false);}}catch{if(!stopped)SetSessionError(true);}if(!stopped)timer=setTimeout(refresh,10000);};refresh();return()=>{stopped=true;clearTimeout(timer);};},[]);
  return <Panel icon={Activity} title="Terminal sessions" meta="Registry state · refreshed every 10 seconds" pad="none">{sessionError?<p role="alert" className="p-4 text-sm text-destructive">Terminal sessions unavailable.</p>:sessions===null?<p className="p-4 text-sm text-muted-foreground">Checking sessions…</p>:sessions.length===0?<p className="p-4 text-sm text-muted-foreground">No terminal sessions.</p>:<div className="max-h-64 overflow-auto"><table className="w-full text-left text-xs"><thead><tr>{['Session','PID','Shell','State','Duration','Exit code'].map(v=><th className="border-b px-3 py-2 font-medium" key={v}>{v}</th>)}</tr></thead><tbody>{sessions.map(s=><tr key={s.session_id} className="border-b last:border-0"><td className="px-3 py-2 font-mono">{s.session_id.slice(0,8)}</td><td className="px-3 py-2">{s.pid??'—'}</td><td className="px-3 py-2">{s.shell}</td><td className="px-3 py-2"><State value={s.state}/></td><td className="px-3 py-2">{seconds(Math.max(0,(s.ended_at??Date.now())-s.started_at))}</td><td className="px-3 py-2">{s.exit_code??'—'}</td></tr>)}</tbody></table></div>}</Panel>;
 }

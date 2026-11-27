@@ -155,11 +155,7 @@ internal sealed class TrayIconHost : IDisposable
         configMenu.DropDownItems.Add("Devices & Peers", null, (_, _) => _window.OpenView(NexusView.Devices));
         configMenu.DropDownItems.Add("Settings", null, (_, _) => _window.OpenView(NexusView.Settings));
         configMenu.DropDownItems.Add("Check for Updates", null, (_, _) => _window.OpenView(NexusView.Updates));
-        configMenu.DropDownItems.Add("Restart Monitor", null, (_, _) =>
-        {
-            try { Process.Start(new ProcessStartInfo("schtasks.exe", "/run /tn SharedHarness-Monitor") { UseShellExecute = false, CreateNoWindow = true }); }
-            catch { /* ignore */ }
-        });
+        configMenu.DropDownItems.Add("Start / Restart Service", null, async (_, _) => await _window.RestartServiceAsync());
         _menu.Items.Add(configMenu);
 
         _menu.Items.Add(new Forms.ToolStripSeparator());

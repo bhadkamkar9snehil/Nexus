@@ -77,14 +77,23 @@ async function recentRuns(){
 }
 
 createServer(async (req, res) => {
+  const appOrigin = req.headers.origin === 'https://app.nexus.local' ? 'https://app.nexus.local' : null;
+  const cors = appOrigin ? {
+    'Access-Control-Allow-Origin': appOrigin,
+    'Access-Control-Allow-Headers': 'Content-Type, X-Nexus, If-None-Match',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Expose-Headers': 'ETag',
+    'Vary': 'Origin',
+  } : {};
   const send = (status, type, body) => {
-    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...cors });
     res.end(body);
   };
   if (req.headers.host !== `127.0.0.1:${port}`) return send(403, 'text/plain', 'Forbidden');
-  // The Peers page API: POST needs a same-origin request carrying X-Nexus, so another web page cannot drive it.
+  if (req.method === 'OPTIONS' && appOrigin) { res.writeHead(204, cors); return res.end(); }
+  // The Peers page API: POST needs a same-origin (or app.nexus.local) request carrying X-Nexus.
   if (req.url.startsWith('/api/')) {
-    if (req.method === 'POST' && (req.headers['x-nexus'] !== '1' || (req.headers.origin && req.headers.origin !== origin))) return send(403, 'text/plain', 'Forbidden');
+    if (req.method === 'POST' && (req.headers['x-nexus'] !== '1' || (req.headers.origin && req.headers.origin !== origin && req.headers.origin !== 'https://app.nexus.local'))) return send(403, 'text/plain', 'Forbidden');
     if (req.method !== 'GET' && req.method !== 'POST') return send(405, 'text/plain', 'Method not allowed');
     let body = {};
     if (req.method === 'POST') {

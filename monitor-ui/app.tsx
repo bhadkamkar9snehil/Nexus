@@ -8,7 +8,7 @@ import {api} from './mail';
 import {Activity,Bot,Download,Gauge,HeartPulse,MessagesSquare,Moon,Network,PanelLeftClose,PanelLeftOpen,Settings,Sun,Wrench} from 'lucide-react';
 import {Panel,IconTile} from './upstream/viz';
 import {Button} from './upstream/button';
-import {Run,Runtime,Tool,names,number,money} from './data';
+import {Run,Runtime,Tool,apiUrl,names,number,money} from './data';
 import {Metrics,Workload,State} from './widgets';
 import {RunsView,HealthView,ToolsView} from './views';
 import {ObservabilityView} from './observability';
@@ -23,19 +23,19 @@ const parseArg=()=>{try{return decodeURIComponent(segment(1));}catch{return '';}
 function App(){
  const [view,View]=useState(parse),[arg,Arg]=useState(parseArg),[unread,Unread]=useState(0),[collapsed,Collapse]=useState(safe(()=>localStorage.getItem('desk.nav.collapsed')==='1',false)),[dark,Dark]=useState(document.documentElement.classList.contains('dark')),[accent,Accent]=useState(safe(()=>localStorage.getItem('harness.accent')||'#4ceea8','#4ceea8'));
  const [ver,Ver]=useState<{version:string;ahead:number;source:string;latest:string|null;newer:boolean}|null>(null);
- useEffect(()=>{const t=async()=>{try{const r=await fetch('/version');if(r.ok)Ver(await r.json());}catch{/* shown on the next check */}};t();const i=setInterval(t,600000);return()=>clearInterval(i);},[]);
+ useEffect(()=>{const t=async()=>{try{const r=await fetch(apiUrl('/version'));if(r.ok)Ver(await r.json());}catch{/* shown on the next check */}};t();const i=setInterval(t,600000);return()=>clearInterval(i);},[]);
  const [runs,Runs]=useState<Run[]>([]),[error,SetError]=useState(''),[loaded,Loaded]=useState(false),[synced,Synced]=useState(0);
  const [tools,Tools]=useState<Tool[]>([]),[toolError,ToolError]=useState(''),[runtime,RuntimeState]=useState<Runtime|null>(null),[runtimeError,RuntimeError]=useState(''),[checking,Checking]=useState(false);
  useEffect(()=>{document.documentElement.style.setProperty('--brand',accent);safe(()=>localStorage.setItem('harness.accent',accent),undefined);},[accent]);
- const checkHealth=useCallback(async()=>{Checking(true);try{const r=await fetch('/runtime');if(!r.ok)throw new Error();RuntimeState(await r.json());RuntimeError('');}catch{RuntimeError('Runtime observations are unavailable. The monitor can still show recorded calls.');}finally{Checking(false);}},[]);
+ const checkHealth=useCallback(async()=>{Checking(true);try{const r=await fetch(apiUrl('/runtime'));if(!r.ok)throw new Error();RuntimeState(await r.json());RuntimeError('');}catch{RuntimeError('Runtime observations are unavailable. The monitor can still show recorded calls.');}finally{Checking(false);}},[]);
  useEffect(()=>{if(view!=='health'&&view!=='tools'&&view!=='overview')return;checkHealth();const timer=setInterval(checkHealth,30000);return()=>clearInterval(timer);},[checkHealth,view]);
  useEffect(()=>{let stopped=false;const poll=async()=>{try{const {threads}=await api('/api/mail?summary');if(!stopped)Unread(threads.reduce((n:number,t:{unread:number})=>n+t.unread,0));}catch{/* the badge stays as it was */}};poll();const timer=setInterval(poll,5000);return()=>{stopped=true;clearInterval(timer);};},[]);
- useEffect(()=>{if(view!=='tools')return;fetch('/tools').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(r=>Tools(r.tools)).catch(()=>ToolError('Tool catalog unavailable. Check the local launcher and dependencies.'));},[view]);
+ useEffect(()=>{if(view!=='tools')return;fetch(apiUrl('/tools')).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(r=>Tools(r.tools)).catch(()=>ToolError('Tool catalog unavailable. Check the local launcher and dependencies.'));},[view]);
  useEffect(()=>{
   const sync=()=>{View(parse());Arg(parseArg());};window.addEventListener('hashchange',sync);
   let stopped=false,timer:ReturnType<typeof setTimeout>;
   let last='',etag='',data:Run[]=[];
-  const refresh=async()=>{try{const r=await fetch('/runs',{headers:etag?{'If-None-Match':etag}:{}});let raw=last;if(r.status!==304){if(!r.ok)throw new Error();raw=await r.text();data=JSON.parse(raw);etag=r.headers.get('ETag')??'';}if(!stopped){if(raw!==last||data.some((v:Run)=>v.status==='running')){last=raw;Runs(data.map((v:Run)=>({...v,status:v.status==='running'&&Date.now()-v.started>150000?'unconfirmed':v.status})));}Loaded(true);Synced(Date.now());SetError('');}}catch{if(!stopped)SetError('Monitor disconnected. Reconnecting…');}if(!stopped)timer=setTimeout(refresh,2000);};refresh();return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('hashchange',sync);};
+  const refresh=async()=>{try{const r=await fetch(apiUrl('/runs'),{headers:etag?{'If-None-Match':etag}:{}});let raw=last;if(r.status!==304){if(!r.ok)throw new Error();raw=await r.text();data=JSON.parse(raw);etag=r.headers.get('ETag')??'';}if(!stopped){if(raw!==last||data.some((v:Run)=>v.status==='running')){last=raw;Runs(data.map((v:Run)=>({...v,status:v.status==='running'&&Date.now()-v.started>150000?'unconfirmed':v.status})));}Loaded(true);Synced(Date.now());SetError('');}}catch{if(!stopped)SetError('Background service is offline. Reconnecting…');}if(!stopped)timer=setTimeout(refresh,2000);};refresh();return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('hashchange',sync);};
  },[]);
  const go=(id:string)=>{location.hash='/'+id;};
  const theme=()=>{Dark(!dark);document.documentElement.classList.toggle('dark',!dark);safe(()=>localStorage.setItem('l1.theme',!dark?'dark':'light'),undefined);};
@@ -51,7 +51,7 @@ function App(){
   <main className="flex min-w-0 flex-1 flex-col"><div className="flex items-center gap-3 border-b bg-canvas px-4 py-2 md:hidden"><Mark className="size-5"/><select aria-label="Page" className="min-w-0 flex-1 bg-canvas text-sm" value={view} onChange={e=>go(e.target.value)}>{routes.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}</select><Button variant="ghost" size="icon-sm" onClick={theme} aria-label="Switch theme">{dark?<Sun/>:<Moon/>}</Button></div>
    <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"><div className="space-y-3 px-4 py-3 lg:px-6">
     <header className="flex flex-wrap items-center gap-3"><IconTile icon={Icon}/><div className="min-w-0 flex-1"><h1 className="text-title font-semibold tracking-tight">{title}</h1>{(view==='overview'||view==='tools')&&<p className="text-xs text-subtle-foreground">{view==='overview'?'Recorded activity · up to 500 calls · live refresh':'Computer, browser, search and decision tools'}</p>}</div><span role="status"><State value={error?'error':loaded?'healthy':'unknown'} label={error?'Reconnecting':loaded?'Monitor online':'Connecting'}/></span></header>
-    {error&&<div role="alert" className="rounded-lg bg-destructive-soft px-4 py-3 text-sm text-destructive">{error} Showing the last received data.</div>}
+    {error&&<div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-destructive-soft px-4 py-3 text-sm text-destructive"><span>{error} Settings, Updates and Setup still work offline.</span><Button size="sm" variant="outline" onClick={()=>(window as {chrome?:{webview?:{postMessage:(m:unknown)=>void}}}).chrome?.webview?.postMessage({type:'service.start',id:Date.now()})}>Start service</Button></div>}
     {view==='overview'&&<><Metrics runs={mcpRuns}/><Workload runs={mcpRuns}/><RunsView runs={mcpRuns} loading={!loaded}/></>}
     {view==='observability'&&<ObservabilityView key={arg} initialQuery={arg} runs={runs} loading={!loaded} disconnected={!!error}/>}
     {view==='tasks'&&<TasksView/>}
