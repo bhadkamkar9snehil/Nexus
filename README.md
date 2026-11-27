@@ -171,6 +171,23 @@ The four decision tools return judgments or recommendations; they do not execute
 
 `search_local` keeps its search results local; `jev_search_content` can send selected excerpts to TypeSafe. Both have limits and can report truncation, errors or inaccessible files. Neither is general PDF, Office or OCR extraction. `network_probe` only performs requested active probes; a missing ICMP reply does not prove a host is absent. See [USAGE.md](USAGE.md) for scope and limits.
 
+### Visual intelligence (experimental, #114)
+
+Nexus can evaluate explicitly supplied PNG and JPEG screenshots with Jev 1.14. The visual tools reuse the existing MCP registry and key routing. They do not click controls or start tasks. The native Nexus desktop observability view reports visual calls, decisions, latency and cache hits.
+
+| Tools | Use |
+|---|---|
+| `visual_verify`, `visual_compare`, `visual_contract` | Check visual evidence and batch independent assertions. |
+| `visual_classify`, `visual_route`, `visual_grade` | Classify states, recommend a state label, and rate against ordered criteria. |
+| `visual_find`, `visual_extract` | Locate one visible target and store a local crop. |
+| `visual_diff`, `visual_remember`, `visual_search` | Local image comparison, content-addressed storage and label search. |
+| `visual_wait`, `visual_watch` | Bounded observation of a caller-maintained image file. |
+| `visual_capture`, `visual_asset`, `visual_redact` | Capture existing windows/sessions locally, inspect/export stored assets, redact pixel rectangles. |
+| `visual_contract_registry`, `visual_recipe` | Immutable versioned contracts and state-transition recommendations. |
+| `visual_watch_manage` | Create, inspect and cancel finite managed-monitor watches; publish visual.watch events. |
+
+External image inference is disabled by default. Configure `NEXUS_VISUAL_OUTBOUND=1` and `NEXUS_VISUAL_OUTBOUND_ROOTS` with an approved staging directory. Every external call must also supply `confirm_upload=true`. Do not configure production screenshot directories as outbound roots. Local tools use the existing read roots. See USAGE.md for limits and current gaps.
+
 ## How the pieces fit
 
 ```mermaid

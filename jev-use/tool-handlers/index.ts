@@ -8,6 +8,7 @@ import { registerTerminalTools } from './terminal.js';
 import { registerCollaborationTools } from './collaboration.js';
 import { registerNetworkTools } from './network.js';
 import { registerDesktopTools } from './desktop.js';
+import { registerVisualTools } from './visual.js';
 
 export function createCoreRegistry() {
   const registry = new ToolRegistry<ToolInvocation>(tools);
@@ -18,6 +19,7 @@ export function createCoreRegistry() {
   registerCollaborationTools(registry);
   registerNetworkTools(registry);
   registerDesktopTools(registry);
+  registerVisualTools(registry);
   registry.assertReady();
   return registry;
 }

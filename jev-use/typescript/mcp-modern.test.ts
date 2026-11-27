@@ -39,7 +39,7 @@ test('events/list describes each event type with schemas and its delivery modes'
   try {
     const list = await client.request({ method: 'events/list', params: {} }, Any) as any;
     const names = list.events.map((e: any) => e.name).sort();
-    assert.deepEqual(names, ['gitlab.event', 'peer.message']);
+    assert.deepEqual(names, ['gitlab.event', 'peer.message', 'visual.watch']);
     for (const e of list.events) {
       assert.deepEqual(e.delivery, ['poll', 'push', 'webhook']);
       assert.equal(e.inputSchema.type, 'object');
@@ -101,12 +101,12 @@ test('2025-era clients can call the extension methods and the nexus_events tool'
   const client = await connect();
   try {
     const list = await client.request({ method: 'events/list', params: {} }, Any) as any;
-    assert.equal(list.events.length, 2);
+    assert.equal(list.events.length, 3);
     const call = async (args: Record<string, unknown>) => JSON.parse(((await client.callTool({ name: 'nexus_events', arguments: args })).content as { text: string }[])[0].text);
     const begin = await call({ action: 'poll', name: 'peer.message', cursor: null });
     await emit('', { name: 'peer.message', eventId: 'm-tool', data: { messageId: 'm-tool', from: 'mahesh', kind: 'chat', subject: '' } });
     const next = await call({ action: 'poll', name: 'peer.message', cursor: begin.cursor });
     assert.deepEqual(next.events.map((e: any) => e.eventId), ['m-tool']);
-    assert.equal((await call({ action: 'list' })).events.length, 2);
+    assert.equal((await call({ action: 'list' })).events.length, 3);
   } finally { await client.close(); }
 });

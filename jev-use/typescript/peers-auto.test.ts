@@ -113,8 +113,11 @@ test('the agent responder answers chat from own devices, stops at NO_REPLY and t
   assert.deepEqual(sent.map(m => [m.to, m.kind, m.hop]), [['laptop', 'chat', 1]]);
   assert.equal(sent[0].body, 'Done: build the release');
   const [mate, mine] = [claudeArgs('safe', false), claudeArgs('safe', true)];
-  assert.equal(mate[mate.indexOf('--tools') + 1], 'ToolSearch');
-  assert.ok(mate.includes('--strict-mcp-config') && !mate.join().includes('shared_jev') && !mate.join().includes('gbrain'), 'teammates get lookups only');
+  assert.equal(mate[mate.indexOf('--tools') + 1], 'Read,Grep,Glob,ToolSearch');
+  const mateAllowed = mate[mate.indexOf('--allowedTools') + 1].split(',');
+  assert.ok(mate.includes('--strict-mcp-config') && !mate.join().includes('shared_jev'), 'teammates get read-only lookups');
+  assert.ok(mateAllowed.includes('mcp__gbrain__query') && mateAllowed.includes('mcp__gitlab__list_issues'));
+  assert.ok(!mateAllowed.some(t => /^(Write|Edit|Bash|mcp__.*__(create|update|delete|write))/.test(t)));
   assert.ok(mine[2].includes('mcp__gbrain__search') && mine[2].includes('mcp__gitlab__list_issues'));
   assert.equal(await respondTo(root, msg({ body: 'ok thanks!' }), { send }), 'finished');
   assert.equal(await respondTo(root, msg({ hop: 3 }), { send }), 'hop limit reached');

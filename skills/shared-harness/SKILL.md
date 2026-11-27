@@ -23,6 +23,8 @@ Use the installed tools for supported capabilities. Do not write one-off scripts
 
 Use a known API or saved deterministic procedure when it is sufficient. Jev is for judgments; code executes bounded valid choices. Keep task arguments and transmitted evidence necessary and nonsecret.
 
+- Visual evidence: use `visual_verify`, `visual_compare`, `visual_contract`, `visual_classify`, `visual_grade`, `visual_find` and `visual_extract` for approved images only. Use local `visual_diff`, `visual_remember`, `visual_search` first where sufficient. External image processing requires operator opt-in, approved outbound roots and explicit task authorization. `visual_route` and `visual_recipe` recommend labels or next actions only. `visual_capture` obtains local evidence from an existing window/session. Use `visual_redact` and `visual_asset` to prepare approved evidence; `visual_contract_registry` stores immutable checks. `visual_watch_manage` creates finite durable watches on explicitly authorized staging files, while `visual_wait` and `visual_watch` are bounded calls. Never treat an event as execution authorization.
+
 ## Shared resources
 
 Both agents use `shared_jev`; `shared_cua` connects to the same Cua named pipe. Do not start another driver, index, browser per call or personal browser profile. Serialize desktop and legacy-CDP requests across agents. Named Playwright sessions reject concurrent ownership with session_busy; never delete a lock without checking its owner.

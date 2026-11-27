@@ -8,6 +8,7 @@ import { events, startWebhook, webhookPort } from './webhook.mjs';
 import { startEventDelivery } from './events-webhooks.mjs';
 import { startPeerDiscovery } from './peers-auto.mjs';
 import { startAutoUpdate } from './auto-update.mjs';
+import { startVisualWatches } from './visual-watch.mjs';
 import { respondTo } from './agent-responder.mjs';
 import { firewall } from './firewall.mjs';
 import { handleApi } from './peers-api.mjs';
@@ -169,6 +170,7 @@ createServer(async (req, res) => {
   firewall({ create: true }).then(f => { if (f.created) console.log('Opened inbound port ' + f.port + ' for peers.'); else if (!f.open) console.error('Peer port ' + f.port + ' is closed in Windows Firewall; run Nexus as administrator once, or use Open port on the Peers page.'); });
   startWebhook(import.meta.dirname, { onMessage: m => respondTo(import.meta.dirname, m, { log: console.error }) }).catch(e => console.error('Webhook receiver not started: ' + e.message));
   startEventDelivery(import.meta.dirname, { log: console.error });
+  if(managed) startVisualWatches(import.meta.dirname,{log:console.error});
   startPeerDiscovery(import.meta.dirname, { log: console.log });
   startAutoUpdate(import.meta.dirname, { log: console.error });
 });

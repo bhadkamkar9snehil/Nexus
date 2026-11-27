@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -34,10 +34,12 @@ test('hook install repoints Nexus hooks once and keeps other hooks and settings'
   assert.ok(stop.includes(other.command) && !stop.some((c: string) => c.includes('C:/old/')));
 });
 
-test('discoverSessions finds Antigravity, Claude, and Codex sessions and scrubs secrets', async () => {
+test('discoverSessions finds Antigravity, Claude, and Codex sessions and scrubs secrets', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-disc-root-'));
   const home = await mkdtemp(join(tmpdir(), 'nexus-disc-home-'));
-  const wsAgy = await mkdtemp(join(tmpdir(), 'nexus-ws-agy-'));
+  // System-account TEMP can be under Windows, which is deliberately excluded by workspace inference.
+  const wsAgy = await mkdtemp(join(process.cwd(), '.nexus-ws-agy-'));
+  t.after(() => rm(wsAgy, { recursive: true, force: true }));
   const wsCodex = await mkdtemp(join(tmpdir(), 'nexus-ws-codex-'));
 
   const agyId = '11111111-2222-3333-4444-555555555555';

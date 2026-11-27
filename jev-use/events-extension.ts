@@ -31,6 +31,13 @@ const eventTypes = {
     payloadSchema: { type: 'object', properties: { messageId: { type: 'string' }, from: { type: 'string' }, kind: { type: 'string' }, subject: { type: 'string' } }, required: ['messageId', 'from', 'kind'] },
     match: (a: { kind?: string; from?: string }) => (d: Record<string, unknown>) => (!a.kind || d.kind === a.kind) && (!a.from || d.from === a.from),
   },
+  'visual.watch': {
+    description: 'A durable visual watch observed changed evidence. Payload is a non-content summary, not execution authorization.',
+    input: z.object({ watch_id:z.string().max(80).optional(), project:z.string().max(64).optional(), kind:z.enum(['condition_matched','state_changed']).optional() }).strict(),
+    inputSchema:{type:'object',properties:{watch_id:{type:'string'},project:{type:'string'},kind:{type:'string',enum:['condition_matched','state_changed']}},additionalProperties:false},
+    payloadSchema:{type:'object',properties:{watch_id:{type:'string'},project:{type:'string'},kind:{type:'string'},verdict:{type:'string'},asset_hash:{type:'string'}},required:['watch_id','project','kind','verdict','asset_hash']},
+    match:(a:{watch_id?:string;project?:string;kind?:string})=>(d:Record<string,unknown>)=>(!a.watch_id||a.watch_id===d.watch_id)&&(!a.project||a.project===d.project)&&(!a.kind||a.kind===d.kind),
+  },
 } as const;
 type EventName = keyof typeof eventTypes;
 const known = (name: string): name is EventName => Object.hasOwn(eventTypes, name);

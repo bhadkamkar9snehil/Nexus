@@ -13,6 +13,8 @@ This is one Windows-native automation package shared by Codex and Claude. Read [
 7. Supply explicit end conditions and read fresh app evidence. Configured credentials, registered MCP entries, installed components, a completed tool call and semantic evidence judgments each prove only their own layer.
 8. **Make sure MCP is connected before starting work.** At session start confirm `shared_jev` tools are listed (load deferred ones) and that `search_status` succeeds. If not, say so and fix it: run `Harness.ps1 doctor`, read the cause the CLI prints (it shows the server's startup output), repair the registration/install, then reconnect the session. The CLI (`Harness.ps1 tools/status/call <tool> '<json>'`, inline JSON or `@file.json`) is a diagnostic and stopgap that starts its own server; it does not prove the agent's MCP is connected. Do not replace a standard interaction with a new one-off engine, and do not carry on silently with another tool.
 
+Visual tools: use the existing capture/automation mechanisms to obtain evidence. Process private images locally; never send an image to Jev without explicit task authorization and operator-configured outbound staging roots. Treat uncertain or missing visual evidence as unresolved. See #114 and USAGE.md.
+
 ## Add or change an MCP tool
 
 - Define the public name, description and stable JSON input schema in `jev-use/tool-catalog.ts`.

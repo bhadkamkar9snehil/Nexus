@@ -1,0 +1,73 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
+import sharp from 'sharp';
+import { persistVisual, readVisualAsset, redactVisual, searchVisual } from '../visual-assets.js';
+import { contractDefinition, recipeDefinition, defineWorkflow, getWorkflow, nextTransition } from '../visual-workflows.js';
+import { screenshotBytes } from '../visual-capture.js';
+import { watchManage, runVisualWatches } from '../../visual-watch.mjs';
+const exec=promisify(execFile);
+const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
+test('durable visual assets, redaction, contracts and recipe safety',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'nexus-visual-test-'));
+ try{
+  const bytes=await sharp({create:{width:8,height:8,channels:3,background:'white'}}).png().toBuffer();
+  const image={bytes,sha256:hash(bytes),width:8,height:8};
+  const a=await persistVisual(root,image,{project:'alpha',label:'test fixture'});
+  assert.equal(a.deduplicated,false);
+  assert.equal((await persistVisual(root,image,{project:'alpha',label:'test fixture'})).deduplicated,true);
+  assert.equal((await searchVisual(root,'alpha','fixture')).results.length,1);
+  await assert.rejects(readVisualAsset(root,'beta',a.asset_id));
+  assert.deepEqual((await readVisualAsset(root,'alpha',a.asset_id)).bytes,bytes);
+  const redacted=await redactVisual(image,[{left:0,top:0,width:4,height:4}]);
+  const pixels=await sharp(redacted.bytes).removeAlpha().raw().toBuffer();
+  assert.deepEqual([...pixels.subarray(0,3)],[0,0,0]);
+  assert.deepEqual([...pixels.subarray(21,24)],[255,255,255]);
+  assert.notEqual(redacted.sha256,image.sha256);
+  await assert.rejects(redactVisual(image,[{left:7,top:7,width:4,height:4}]));
+  const c=contractDefinition({id:'checkout.v1',project:'alpha',checks:['Visible button'],reference_hashes:[a.asset_id]});
+  const record=await defineWorkflow(root,'contracts',c);
+  assert.equal((await getWorkflow(root,'contracts','alpha',c.id)).hash,record.hash);
+  await assert.rejects(defineWorkflow(root,'contracts',{...c,checks:['Changed']}));
+  const recipe=recipeDefinition({id:'flow.v1',states:{ready:'Ready',done:'Done'},transitions:[{from:'ready',to:'done',action_id:'continue',postcondition:'Complete'}]});
+  await defineWorkflow(root,'recipes',recipe);
+  assert.equal(nextTransition(recipe,'ready').next?.action_id,'continue');
+  assert.equal(nextTransition(recipe,'missing').next,null);
+  assert.equal(nextTransition(recipe,'ready').executed,false);
+  assert.deepEqual(screenshotBytes({content:[{type:'image',mimeType:'image/png',data:bytes.toString('base64')}]}),bytes);
+  assert.throws(()=>screenshotBytes({content:[]}));
+  const file=join(root,'fixture.png'), request=join(root,'request.json');
+  await writeFile(file,bytes);
+  await writeFile(request,JSON.stringify({path:file,references:[file]}));
+  const {stdout}=await exec(process.execPath,[join(import.meta.dirname,'..','cli.mjs'),'visual_diff','@'+request],{env:{...process.env,NEXUS_READ_ROOTS:root,HARNESS_MONITOR_OBSERVATION:'0'},timeout:30000});
+  assert.equal(JSON.parse(stdout).identical,true);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+test('durable watches are idempotent, skip unchanged input and cancel',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'nexus-watch-test-'));
+ try{
+  const path=join(root,'fixture.png');await writeFile(path,'synthetic');
+  const req={action:'create',id:'watch-fixture-0001',path,question:'Ready?',confirm_upload:true,confirm_future_frames:true,interval_ms:5000,duration_ms:60000};
+  await assert.rejects(watchManage(root,{...req,confirm_future_frames:false}));
+  await watchManage(root,req);
+  assert.equal((await watchManage(root,req)).reused,true);
+  await assert.rejects(watchManage(root,{...req,question:'different'}));
+  let calls=0;const events:any[]=[];
+  const evaluate=async()=>{calls++;return {status:'done',verdict:'satisfied',asset_hashes:['a'.repeat(64)]};};
+  const emitEvent=async(_root:string,event:any)=>{events.push(event);};
+  const now=Date.now();
+  await runVisualWatches(root,{now,evaluate,emitEvent});
+  await runVisualWatches(root,{now:now+6000,evaluate,emitEvent});
+  assert.equal(calls,1);assert.equal(events.length,1);
+  assert.equal(events[0].data.kind,'condition_matched');
+  await watchManage(root,{action:'cancel',id:req.id});
+  await writeFile(path,'changed');
+  await runVisualWatches(root,{now:now+12000,evaluate,emitEvent});
+  assert.equal(calls,1);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
