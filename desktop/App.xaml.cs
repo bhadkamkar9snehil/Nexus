@@ -7,7 +7,7 @@ using System.Threading;
 
 namespace Nexus.Desktop;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private Mutex? _instance;
     private readonly CancellationTokenSource _activation = new();
@@ -66,7 +66,7 @@ public partial class App : Application
                 var code = new byte[1];
                 try
                 {
-                    if (await server.ReadAsync(code, deadline.Token) == 1 && code[0] <= (byte)NexusView.Updates)
+                    if (await server.ReadAsync(code, deadline.Token) == 1 && code[0] <= (byte)NexusView.Settings)
                         window.OpenView((NexusView)code[0]);
                 }
                 catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { }

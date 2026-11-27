@@ -5,7 +5,7 @@ using Windows.UI.Notifications;
 
 namespace Nexus.Desktop;
 
-internal enum NexusView : byte { Current, Inbox, Updates }
+internal enum NexusView : byte { Current, Inbox, Updates, Mail, Devices, Settings }
 
 internal static class NexusNotifications
 {

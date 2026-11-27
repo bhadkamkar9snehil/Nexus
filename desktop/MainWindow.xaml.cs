@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net.Http;
 using System.Diagnostics;
 using System.IO;
@@ -14,19 +15,28 @@ public partial class MainWindow : Window
     private string _root = AppContext.BaseDirectory;
     private SettingsHost? _settings;
     private UpdateHost? _updates;
+    private TrayIconHost? _tray;
     private NexusView _view;
     private bool _messaging;
+    private bool _exiting;
 
     internal MainWindow(NexusView view)
     {
         _view = view;
         InitializeComponent();
+        _tray = new TrayIconHost(this);
         Loaded += OnLoaded;
+        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) Hide(); };
     }
 
     private Uri ViewAddress() => new(Address + (_view switch
     {
-        NexusView.Inbox => "#/inbox", NexusView.Updates => "#/updates", _ => ""
+        NexusView.Inbox => "#/inbox",
+        NexusView.Mail => "#/mail",
+        NexusView.Devices => "#/devices",
+        NexusView.Settings => "#/settings",
+        NexusView.Updates => "#/updates",
+        _ => ""
     }));
 
     internal void OpenView(NexusView view)
@@ -39,6 +49,27 @@ public partial class MainWindow : Window
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
+    }
+
+    internal void ExitApplication()
+    {
+        _exiting = true;
+        _tray?.Dispose();
+        _tray = null;
+        Close();
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!_exiting)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+        _tray?.Dispose();
+        _tray = null;
+        base.OnClosing(e);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e) => await ConnectAsync();

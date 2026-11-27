@@ -286,7 +286,7 @@ if (Test-Path $secrets) {
 }
 $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Install -File "{1}" -Version {2}' -f $PSCommandPath, $staged, $latest.Tag
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
 try {
     $registered = Register-ScheduledTask -TaskName 'Nexus-AutoUpdate-Install' -Action $action -Principal $principal -Force -ErrorAction Stop
     if ($registered.Actions.Count -ne 1 -or $registered.Actions[0].Arguments -ne $arguments) {
