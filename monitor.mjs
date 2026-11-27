@@ -162,7 +162,7 @@ createServer(async (req, res) => {
     } catch { return send(503, 'text/plain', 'Harness inspection failed. Check launcher and runtime dependencies.'); }
   }
   if (req.url !== '/runs') return send(404, 'text/plain', 'Not found');
-  try { const rows=await recentRuns(); const etag=runCache?.rows===rows?'"'+runCache.key+'"':'"empty"'; if(req.headers['if-none-match']===etag){res.writeHead(304,{'ETag':etag,'Cache-Control':'no-store'});return res.end();} res.setHeader('ETag',etag);send(200,'application/json',runCache?.rows===rows?runCache.json:JSON.stringify(rows)); }
+  try { const rows=await recentRuns(); const etag=runCache?.rows===rows?'"'+runCache.key+'"':'"empty"'; if(req.headers['if-none-match']===etag){res.writeHead(304,{'ETag':etag,'Cache-Control':'no-store',...cors});return res.end();} res.setHeader('ETag',etag);send(200,'application/json',runCache?.rows===rows?runCache.json:JSON.stringify(rows)); }
   catch { send(500, 'text/plain', 'Could not read the run log'); }
 }).listen(port, '127.0.0.1', async () => {
   console.log('Computer & Browser Use Monitor: ' + origin);

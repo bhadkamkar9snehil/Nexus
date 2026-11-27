@@ -139,6 +139,20 @@ if ($Install) {
                 $pruned = Remove-NexusOldRecoverySnapshots -store (Join-Path $folder 'installer-recovery') -keep 2
                 if ($pruned -gt 0) { Write-Log "Removed $pruned old unprotected recovery snapshot(s)." }
             } catch { Write-Log ('Recovery retention cleanup failed: ' + $_.Exception.Message) }
+        }
+        if ($resultCode -eq 0) {
+            try {
+                $stagedDir = Join-Path $folder 'staged'
+                if ($File -and (Test-Path -LiteralPath $File) -and [IO.Path]::GetFullPath((Split-Path -Parent $File)).TrimEnd('\') -ieq [IO.Path]::GetFullPath($stagedDir).TrimEnd('\')) {
+                    Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+                }
+                Get-ChildItem -LiteralPath $folder -Filter 'installer-*.log' -File -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTimeUtc -Descending | Select-Object -Skip 5 |
+                    Remove-Item -Force -ErrorAction SilentlyContinue
+                Get-ChildItem -LiteralPath (Join-Path $folder 'backups') -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending | Select-Object -Skip 5 |
+                    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            } catch { }
         } elseif ($recoverySnapshot -and $resultCode -ne 0) {
             try {
                 $after = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
@@ -187,27 +201,48 @@ if (-not $InstalledVersion -and $key.InstallLocation.TrimEnd('\') -ne $PSScriptR
 $state = try { Get-Content -LiteralPath (Join-Path $folder 'updates.json') -Raw | ConvertFrom-Json } catch { $null }
 if ($state -and $state.autoUpdate -eq $false) { Done 'none' 'automatic updates are switched off' }
 
-# The newest release that has an installer and a published checksum.
-$hosts = 'http://100.110.236.122:8080', 'http://10.2.6.112:8080'
+# The newest release that has an installer and a published checksum across GitHub and GitLab (LAN + Tailscale) in parallel.
+$hosts = 'http://10.2.6.112:8080', 'http://100.110.236.122:8080'
 $tokenFile = Join-Path $folder 'gitlab-token.bin'
 $token = try { Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($tokenFile), $null, 'CurrentUser')) } catch { $null }
-$headers = if ($token) { @{ 'PRIVATE-TOKEN' = $token } } else { @{} }
-# Prefer published GitHub releases so Windows peers without private GitLab tokens can update.
-# Private GitLab remains an alternate source when GitHub is unreachable.
 $githubApi = 'https://api.github.com/repos/bhadkamkar9snehil/Nexus/releases?per_page=10'
-$releases = $null
-if ($ReleasesJson) { $releases = Get-Content -LiteralPath $ReleasesJson -Raw | ConvertFrom-Json }
-else {
+$releases = @()
+if ($ReleasesJson) {
+    $parsed = Get-Content -LiteralPath $ReleasesJson -Raw | ConvertFrom-Json
+    $releases = @($parsed)
+} else {
+    Add-Type -AssemblyName System.Net.Http
+    $http = [System.Net.Http.HttpClient]::new()
+    $http.Timeout = [TimeSpan]::FromSeconds(6)
     try {
-        $releases = Invoke-RestMethod $githubApi -Headers @{ 'User-Agent'='Nexus-Harness-Updater'; 'Accept'='application/vnd.github+json' } -TimeoutSec 8
-    } catch { }
-    if (-not $releases) {
+        $reqGh = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $githubApi)
+        [void]$reqGh.Headers.TryAddWithoutValidation('User-Agent', 'Nexus-Harness-Updater')
+        [void]$reqGh.Headers.TryAddWithoutValidation('Accept', 'application/vnd.github+json')
+        $taskGh = $http.SendAsync($reqGh)
+
+        $glTasks = @()
         foreach ($h in $hosts) {
-            try { $releases = Invoke-RestMethod "$h/api/v4/projects/ssm%2Fshared-computer-use/releases?per_page=10" -Headers $headers -TimeoutSec 6; break } catch { }
+            $reqGl = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, "$h/api/v4/projects/ssm%2Fshared-computer-use/releases?per_page=10")
+            if ($token) { [void]$reqGl.Headers.TryAddWithoutValidation('PRIVATE-TOKEN', $token) }
+            $glTasks += $http.SendAsync($reqGl)
         }
-    }
+
+        $allTasks = @($taskGh) + $glTasks
+        try { [void][System.Threading.Tasks.Task]::WhenAll([System.Threading.Tasks.Task[]]$allTasks).Wait(7000) } catch { }
+
+        if ($taskGh.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $taskGh.Result.IsSuccessStatusCode) {
+            $bodyGh = $taskGh.Result.Content.ReadAsStringAsync().Result
+            if ($bodyGh) { $releases += @($bodyGh | ConvertFrom-Json) }
+        }
+        foreach ($t in $glTasks) {
+            if ($t.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $t.Result.IsSuccessStatusCode) {
+                $bodyGl = $t.Result.Content.ReadAsStringAsync().Result
+                if ($bodyGl) { $releases += @($bodyGl | ConvertFrom-Json); break }
+            }
+        }
+    } finally { $http.Dispose() }
 }
-if (-not $releases) { Done 'none' 'GitHub and GitLab releases are unreachable' }
+if (-not $releases.Count) { Done 'none' 'GitHub and GitLab releases are unreachable' }
 $latest = $null
 foreach ($r in $releases) {
     $tag = [string]$r.tag_name
@@ -216,21 +251,25 @@ foreach ($r in $releases) {
     $notes = if ($r.body) { [string]$r.body } else { [string]$r.description }
     $sha = [regex]::Match($notes, [regex]::Escape($filename) + ': SHA256 ([0-9a-fA-F]{64})').Groups[1].Value.ToLowerInvariant()
     if (-not $sha) { continue }
+    $candidate = $null
     $githubAsset = @($r.assets) | Where-Object { $_.name -eq $filename -and $_.browser_download_url } | Select-Object -First 1
     if ($githubAsset) {
         $expected = 'https://github.com/bhadkamkar9snehil/Nexus/releases/download/' + $tag + '/' + $filename
         if ([string]$githubAsset.browser_download_url -ne $expected) { continue }
         $digest = [string]$githubAsset.digest
         if ($digest -and $digest -ne ('sha256:' + $sha)) { continue }
-        $latest = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='github'; Url=$expected; Sha=$sha }
-        break
+        $candidate = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='github'; Url=$expected; Sha=$sha }
     }
-    $gitlabAsset = @($r.assets.links) | Where-Object { $_.name -eq $filename -and $_.url } | Select-Object -First 1
-    if ($gitlabAsset) {
-        $assetUrl = [uri]$gitlabAsset.url
-        if ($hosts -notcontains $assetUrl.GetLeftPart([UriPartial]::Authority)) { continue }
-        $latest = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='gitlab'; Path=$assetUrl.PathAndQuery; Sha=$sha }
-        break
+    if (-not $candidate) {
+        $gitlabAsset = @($r.assets.links) | Where-Object { $_.name -eq $filename -and $_.url } | Select-Object -First 1
+        if ($gitlabAsset) {
+            $assetUrl = [uri]$gitlabAsset.url
+            if ($hosts -notcontains $assetUrl.GetLeftPart([UriPartial]::Authority)) { continue }
+            $candidate = [pscustomobject]@{ Tag=$tag; Name=$filename; Source='gitlab'; Path=$assetUrl.PathAndQuery; Sha=$sha }
+        }
+    }
+    if ($candidate -and (-not $latest -or [version]$candidate.Tag.TrimStart('v') -gt [version]$latest.Tag.TrimStart('v'))) {
+        $latest = $candidate
     }
 }
 if (-not $latest) { Done 'none' 'no release with an installer and a checksum' }
@@ -239,7 +278,11 @@ if ([version]$latest.Tag.TrimStart('v') -le [version]$installed) { Done 'none' "
 # Download in the background while the machine is in use; nothing is installed yet.
 $staged = Join-Path $folder ('staged\' + $latest.Name)
 if (-not $DryRun) {
-    New-Item -ItemType Directory -Path (Split-Path $staged) -Force | Out-Null
+    $stagedDir = Split-Path $staged
+    New-Item -ItemType Directory -Path $stagedDir -Force | Out-Null
+    Get-ChildItem -LiteralPath $stagedDir -Filter 'Nexus-Harness-Setup-*.exe' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ine $staged } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     if (-not ((Test-Path $staged) -and (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower() -eq $latest.Sha)) {
         $ok = $false
         if ($latest.Source -eq 'github' -and $token) {

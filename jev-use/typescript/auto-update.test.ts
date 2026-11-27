@@ -57,6 +57,12 @@ test('public GitHub release is eligible without private GitLab credentials', { s
   assert.equal(result.latest, 'v1.18.0');
 });
 
+test('highest version across GitHub and GitLab is selected regardless of order', { skip: process.platform !== 'win32' }, async () => {
+  const result = await decide({ installed: '1.17.0', releases: [githubRelease('v1.18.0'), release('v1.19.0')] });
+  assert.equal(result.action, 'install');
+  assert.equal(result.latest, 'v1.19.0');
+});
+
 test('GitHub release is refused when published digest disagrees with description', { skip: process.platform !== 'win32' }, async () => {
   const result = await decide({ installed: '1.17.1', releases: [githubRelease('v1.18.0', 'sha256:' + 'b'.repeat(64))] });
   assert.equal(result.action, 'none');

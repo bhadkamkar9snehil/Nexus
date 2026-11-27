@@ -40,6 +40,7 @@ internal static class Program
                 if (operation == "repair") await monitor.TakeOverAsync(stopClients: false);
                 await monitor.ProvisionAsync();
                 await ConfigureOptionalAsync(root, args);
+                CleanupUpdateArtifacts();
                 Log("Nexus setup completed. Managed monitor verified.");
             }
             return 0;
@@ -80,6 +81,38 @@ internal static class Program
         VerifyHash(Path.Combine(package, "package-lock.json"), File.ReadAllText(Path.Combine(root, ".bundled-lock.sha256")).Trim());
         if (!File.Exists(Path.Combine(package, "node_modules", "tsx", "dist", "loader.mjs")))
             throw new InvalidDataException("Bundled Node dependencies are missing. Download a fresh installer.");
+    }
+
+    private static void CleanupUpdateArtifacts()
+    {
+        foreach (var dir in new[] { Path.Combine(Path.GetTempPath(), "Nexus-update"), Path.Combine(Logs, "staged") })
+        {
+            if (!Directory.Exists(dir)) continue;
+            foreach (var file in Directory.GetFiles(dir, "Nexus-Harness-Setup-*.exe"))
+            {
+                try { File.Delete(file); } catch { }
+            }
+        }
+        try
+        {
+            foreach (var oldLog in Directory.GetFiles(Logs, "installer-*.log").OrderByDescending(File.GetLastWriteTimeUtc).Skip(5))
+            {
+                try { File.Delete(oldLog); } catch { }
+            }
+        }
+        catch { }
+        try
+        {
+            var backupsRoot = Path.Combine(Logs, "backups");
+            if (Directory.Exists(backupsRoot))
+            {
+                foreach (var oldBackup in Directory.GetDirectories(backupsRoot).OrderByDescending(Path.GetFileName, StringComparer.Ordinal).Skip(5))
+                {
+                    try { Directory.Delete(oldBackup, recursive: true); } catch { }
+                }
+            }
+        }
+        catch { }
     }
 
     private static void VerifyHash(string path, string? expected)

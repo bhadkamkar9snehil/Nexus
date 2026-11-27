@@ -20,17 +20,36 @@ test('an installed bundle reports its VERSION file; a source checkout reports it
   assert.deepEqual(await currentVersion('r', { readText: noFile, run: async () => null }), { version: 'dev', source: 'source', ahead: 0 });
 });
 
-test('the update indicator needs a newer release, tolerates being offline, and caches the feed', async () => {
+test('the update indicator checks GitHub and GitLab in parallel, tolerates being offline, and caches the feed', async () => {
   resetVersionCache();
   let calls = 0;
-  const feed = (tag: string) => (async () => { calls++; return { ok: true, json: async () => ({ tag_name: tag, html_url: 'https://github.com/x/releases/' + tag }) }; }) as never;
+  const feed = (tag: string) => (async (url: string) => {
+    calls++;
+    if (url.includes('api.github.com')) {
+      return { ok: true, json: async () => ({ tag_name: tag, html_url: 'https://github.com/x/releases/' + tag }) };
+    }
+    throw new Error('gitlab offline');
+  }) as never;
   const deps = { readText: async () => '1.12.0' };
   const newer = await versionInfo('r', { ...deps, fetcher: feed('v1.13.0') });
   assert.deepEqual([newer.version, newer.latest, newer.newer], ['1.12.0', '1.13.0', true]);
+  const callsAfterFirst = calls;
   await versionInfo('r', { ...deps, fetcher: feed('v9.9.9') });
-  assert.equal(calls, 1, 'second call within 30 minutes uses the cache');
+  assert.equal(calls, callsAfterFirst, 'second call within 30 minutes uses the cache');
   resetVersionCache();
   assert.equal((await versionInfo('r', { ...deps, fetcher: feed('v1.12.0') })).newer, false);
+  resetVersionCache();
+  // GitLab Tailscale succeeds with newer version even when GitHub and GitLab LAN are down
+  const tailnetWins = await versionInfo('r', {
+    ...deps,
+    fetcher: (async (url: string) => {
+      if (url.startsWith('http://100.110.236.122:8080')) {
+        return { ok: true, json: async () => [{ tag_name: 'v1.14.0', _links: { self: 'http://100.110.236.122:8080/ssm/shared-computer-use/-/releases/v1.14.0' } }] };
+      }
+      throw new Error('unreachable');
+    }) as never,
+  });
+  assert.deepEqual([tailnetWins.latest, tailnetWins.newer], ['1.14.0', true]);
   resetVersionCache();
   const offline = await versionInfo('r', { ...deps, fetcher: (async () => { throw new Error('offline'); }) as never });
   assert.deepEqual([offline.latest, offline.newer], [null, false]);
