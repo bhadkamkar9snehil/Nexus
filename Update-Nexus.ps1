@@ -265,12 +265,12 @@ if ($ReleasesJson) {
 
         if ($taskGh.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $taskGh.Result.IsSuccessStatusCode) {
             $bodyGh = $taskGh.Result.Content.ReadAsStringAsync().Result
-            if ($bodyGh) { $releases += @($bodyGh | ConvertFrom-Json) }
+            if ($bodyGh) { $parsed = $bodyGh | ConvertFrom-Json; $releases += @($parsed) }
         }
         foreach ($t in $glTasks) {
             if ($t.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $t.Result.IsSuccessStatusCode) {
                 $bodyGl = $t.Result.Content.ReadAsStringAsync().Result
-                if ($bodyGl) { $releases += @($bodyGl | ConvertFrom-Json); break }
+                if ($bodyGl) { $parsed = $bodyGl | ConvertFrom-Json; $releases += @($parsed); break }
             }
         }
     } finally { $http.Dispose() }

@@ -76,6 +76,21 @@ $setupExe = Join-Path $setupPublish 'Nexus.Setup.exe'
 & $setupExe self-test
 if ($LASTEXITCODE -ne 0) { throw 'Installer backend self-test failed.' }
 Copy-Item -LiteralPath $setupExe -Destination $stage
+# The scheduled update must outlive Setup without opening a console window.
+$updatePublish = Join-Path $stageRoot 'update-helper-publish'
+& dotnet publish (Join-Path $stage 'installer\Nexus.Setup.csproj') --configuration Release --artifacts-path (Join-Path $stageRoot 'update-helper-artifacts') --output $updatePublish -p:OutputType=WinExe -p:AssemblyName=Nexus.UpdateHelper
+if ($LASTEXITCODE -ne 0) { throw 'Windowless update helper publish failed.' }
+$updateExe = Join-Path $updatePublish 'Nexus.UpdateHelper.exe'
+$reader = [IO.BinaryReader]::new([IO.File]::OpenRead($updateExe))
+try {
+    $reader.BaseStream.Position = 0x3c
+    $pe = $reader.ReadInt32()
+    $reader.BaseStream.Position = $pe + 24 + 68
+    if ($reader.ReadUInt16() -ne 2) { throw 'Scheduled helper must use the Windows GUI subsystem.' }
+} finally { $reader.Dispose() }
+$updateTest = Start-Process -FilePath $updateExe -ArgumentList 'self-test' -Wait -PassThru
+if ($updateTest.ExitCode -ne 0) { throw 'Windowless update helper self-test failed.' }
+Copy-Item -LiteralPath $updateExe -Destination $stage
 $outputDir = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 if (-not $InstallerOnly) {

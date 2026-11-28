@@ -66,6 +66,8 @@ internal static class Program
 
     internal static void ValidatePackage(string root)
     {
+        if (!File.Exists(Path.Combine(root, "Nexus.UpdateHelper.exe")))
+            throw new InvalidDataException("The windowless update helper is missing. Download a fresh installer.");
         var runtime = Path.Combine(root, "runtime");
         var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(runtime, "SHA256.json")));

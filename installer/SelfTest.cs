@@ -10,6 +10,12 @@ internal static class SelfTest
 {
     internal static void Run()
     {
+        if (AutoUpdater.RequiresInteractiveElevation(1, false, 0) != true ||
+            AutoUpdater.RequiresInteractiveElevation(1, true, null) != false ||
+            AutoUpdater.RequiresInteractiveElevation(2, true, 5) != true ||
+            AutoUpdater.RequiresInteractiveElevation(3, false, 0) != false ||
+            AutoUpdater.RequiresInteractiveElevation(3, false, null) != true)
+            throw new Exception("Updater elevation policy regression.");
         var args = Windows.Arguments("node.exe \"C:\\Program Files\\Nexus\\monitor.mjs\" extra");
         if (args is not ["node.exe", @"C:\Program Files\Nexus\monitor.mjs", "extra"]) throw new Exception("Windows argument parsing failed.");
         using var process = Process.GetCurrentProcess();

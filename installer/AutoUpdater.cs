@@ -53,6 +53,8 @@ internal static partial class AutoUpdater
         var dryRun = false;
         var noRecovery = false;
         string? file = null;
+        string? installRoot = null;
+        string? expectedSha256 = null;
         string? version = null;
         string? releasesJson = null;
         string? runsJson = null;
@@ -68,6 +70,8 @@ internal static partial class AutoUpdater
                 case "--no-recovery": noRecovery = true; break;
                 case "--current-user": break; // accepted from an older scheduled task; there is only one kind of install
                 case "--file" when i + 1 < args.Length: file = args[++i]; break;
+                case "--root" when i + 1 < args.Length: installRoot = args[++i]; break;
+                case "--sha256" when i + 1 < args.Length: expectedSha256 = args[++i]; break;
                 case "--version" when i + 1 < args.Length: version = args[++i]; break;
                 case "--releases-json" when i + 1 < args.Length: releasesJson = args[++i]; break;
                 case "--runs-json" when i + 1 < args.Length: runsJson = args[++i]; break;
@@ -79,12 +83,21 @@ internal static partial class AutoUpdater
 
         Directory.CreateDirectory(logsFolder);
         var logFile = Path.Combine(logsFolder, "auto-update.log");
-        var root = SetupPath.Normalize(AppContext.BaseDirectory);
+        var root = SetupPath.Normalize(installRoot ?? AppContext.BaseDirectory);
 
         if (installMode)
-            return await ExecuteInstallAsync(root, logsFolder, logFile, file, version, noRecovery);
+            return await ExecuteInstallAsync(root, logsFolder, logFile, file, version, noRecovery, expectedSha256);
 
-        return await CheckAndScheduleAsync(root, logsFolder, logFile, dryRun, releasesJson, runsJson, installedVersion, idleSeconds);
+        if (dryRun)
+            return await CheckAndScheduleAsync(root, logsFolder, logFile, true, releasesJson, runsJson, installedVersion, idleSeconds);
+        FileStream checkLock;
+        try { checkLock = new FileStream(Path.Combine(logsFolder, "auto-update-check.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        catch (IOException) { return 0; }
+        using (checkLock)
+        {
+            if (InstallTaskActive()) return 0;
+            return await CheckAndScheduleAsync(root, logsFolder, logFile, false, releasesJson, runsJson, installedVersion, idleSeconds);
+        }
     }
 
     private static void Log(string logFile, string message)
@@ -397,11 +410,17 @@ internal static partial class AutoUpdater
                 File.Copy(f, Path.Combine(backupDir, Path.GetFileName(f)), overwrite: true);
         }
 
-        var setupExe = Path.Combine(root, "Nexus.Setup.exe");
-        var arguments = $"auto-update --install --file \"{staged}\" --version {latest.Tag}";
+        var arguments = $"auto-update --install --file \"{staged}\" --version {latest.Tag} --sha256 {latest.Sha256} --root \"{root.TrimEnd('\\')}\"";
         try
         {
-            ScheduleAndStartInstallTask(setupExe, arguments, root);
+            // Setup shuts down whatever runs a file it replaces, so the helper that waits for it runs from a copy
+            // outside the installation. Without this it died mid-update and left no receipt.
+            var helperDir = Path.Combine(logsFolder, "update-helper");
+            Directory.CreateDirectory(helperDir);
+            var helperExe = Path.Combine(helperDir, "Nexus.UpdateHelper.exe");
+            // The Windows-subsystem apphost does not open a console in the interactive session.
+            File.Copy(Path.Combine(root, "Nexus.UpdateHelper.exe"), helperExe, overwrite: true);
+            ScheduleAndStartInstallTask(helperExe, arguments, helperDir);
         }
         catch (Exception ex)
         {
@@ -415,13 +434,33 @@ internal static partial class AutoUpdater
     // Always created and run with normal rights, so the monitor can always replace it. Only Setup itself is elevated.
     private const string InstallTaskName = "Nexus-Update";
 
-    /// <summary>False when Windows grants this process administrator rights without asking anyone.</summary>
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token, int informationClass,
+        out int information, int length, out int returnedLength);
+
+    // A normal scheduled task uses the limited token even if the caller is elevated.
+    // TokenElevationTypeFull (2) and Limited (3) both identify a split administrator token.
+    internal static bool RequiresInteractiveElevation(int tokenType, bool elevated, int? consentAdmin) =>
+        tokenType is 2 or 3 ? consentAdmin != 0 : !elevated;
+
     private static bool UacWillAsk()
     {
-        if (IsElevated()) return false;
+        using var identity = WindowsIdentity.GetCurrent();
+        if (!GetTokenInformation(identity.AccessToken, 18, out var type, sizeof(int), out _)) return true;
         using var policy = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System");
-        if (policy?.GetValue("EnableLUA") is int lua && lua == 0) return false;
-        return !(policy?.GetValue("ConsentPromptBehaviorAdmin") is int consent && consent == 0);
+        return RequiresInteractiveElevation(type, IsElevated(), policy?.GetValue("ConsentPromptBehaviorAdmin") as int?);
+    }
+
+    private static bool InstallTaskActive()
+    {
+        try
+        {
+            dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!)!;
+            service.Connect();
+            dynamic task = service.GetFolder(@"\").GetTask(InstallTaskName);
+            return (int)task.State is 2 or 4; // queued or running
+        }
+        catch (COMException ex) when (ex.HResult == unchecked((int)0x80070002)) { return false; }
     }
 
     private static bool FailedRecently(string logsFolder, string tag)
@@ -444,6 +483,8 @@ internal static partial class AutoUpdater
         dynamic definition = service.NewTask(0);
         definition.Principal.UserId = identity.Name;
         definition.Principal.LogonType = 3; // Interactive
+        definition.Principal.RunLevel = 0; // Limited; the installer alone requests elevation.
+        definition.Settings.MultipleInstances = 2; // Ignore a duplicate start.
         definition.Settings.DisallowStartIfOnBatteries = false;
         definition.Settings.StopIfGoingOnBatteries = false;
         definition.Settings.ExecutionTimeLimit = "PT30M";
@@ -455,7 +496,7 @@ internal static partial class AutoUpdater
         task.Run(null);
     }
 
-    private static async Task<int> ExecuteInstallAsync(string root, string logsFolder, string logFile, string? file, string? version, bool noRecovery)
+    private static async Task<int> ExecuteInstallAsync(string root, string logsFolder, string logFile, string? file, string? version, bool noRecovery, string? expectedSha256)
     {
         var safeVersion = version is not null && SafeVersionRegex().IsMatch(version) ? version.TrimStart('v') : "unknown";
         var installerLog = Path.Combine(logsFolder, $"installer-{safeVersion}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
@@ -469,6 +510,15 @@ internal static partial class AutoUpdater
                 throw new InvalidOperationException("The staged Nexus installer is missing.");
             if (safeVersion == "unknown")
                 throw new InvalidOperationException("Invalid target Nexus version.");
+            var (_, registeredRoot) = GetUninstallInfo(root);
+            if (string.IsNullOrWhiteSpace(registeredRoot) || !Path.IsPathFullyQualified(registeredRoot) ||
+                !SetupPath.Normalize(registeredRoot).Equals(root, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The update target does not match the registered Nexus installation.");
+
+            // Older one-off tasks did not carry a checksum. New tasks always do.
+            if (expectedSha256 is not null &&
+                !string.Equals(await FileSha256Async(file), expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The staged installer no longer matches the published checksum.");
 
             Log(logFile, noRecovery ? "Installer rollback disabled by explicit command-line option." : $"Installing {version}; installer diagnostic log: {installerLog}");
             // One kind of install: Setup requires administrator rights and raises the UAC request itself.
@@ -477,7 +527,7 @@ internal static partial class AutoUpdater
                 UseShellExecute = true,
                 WorkingDirectory = root,
             };
-            foreach (var arg in new[] { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", $"/LOG={installerLog}" })
+            foreach (var arg in new[] { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", $"/DIR={root.TrimEnd('\\')}", $"/LOG={installerLog}" })
                 start.ArgumentList.Add(arg);
 
             using var proc = Process.Start(start) ?? throw new InvalidOperationException("Could not start the Nexus installer.");
@@ -489,14 +539,16 @@ internal static partial class AutoUpdater
             if (resultCode == 0)
             {
                 var (regVer, regLoc) = GetUninstallInfo(root);
-                if (!string.Equals(regVer, safeVersion, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(regVer, safeVersion, StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(regLoc) || !Path.IsPathFullyQualified(regLoc) ||
+                    !SetupPath.Normalize(regLoc).Equals(root, StringComparison.OrdinalIgnoreCase))
                 {
                     Log(logFile, $"Installer exited successfully, but installed version was not verified (registered: {regVer})");
                     resultCode = 1;
                 }
                 else
                 {
-                    monitorReady = await WaitMonitorHealthyAsync(regLoc ?? root);
+                    monitorReady = await WaitMonitorHealthyAsync(root);
                     if (!monitorReady)
                     {
                         Log(logFile, "Installed version matches, but the managed Nexus monitor or its scheduled task is not healthy.");
@@ -527,7 +579,7 @@ internal static partial class AutoUpdater
                 }
                 catch { }
             }
-            SaveReceipt(logsFolder, logFile, version ?? "unknown", resultCode, monitorReady, installerLog, installerExitCode);
+            if (!SaveReceipt(logsFolder, logFile, version ?? "unknown", resultCode, monitorReady, installerLog, installerExitCode)) resultCode = 1;
             try
             {
                 dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!)!;
@@ -551,7 +603,11 @@ internal static partial class AutoUpdater
                 var body = await Http.GetStringAsync("http://127.0.0.1:8769/monitor-status", cts.Token);
                 using var doc = JsonDocument.Parse(body);
                 var rootEl = doc.RootElement;
-                if (rootEl.GetProperty("application").GetString() == "shared-computer-use-monitor" &&
+                dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!)!;
+                service.Connect();
+                dynamic task = service.GetFolder(@"\").GetTask("SharedHarness-Monitor");
+                if ((int)task.State == 4 &&
+                    rootEl.GetProperty("application").GetString() == "shared-computer-use-monitor" &&
                     rootEl.GetProperty("managed").GetBoolean() &&
                     rootEl.GetProperty("root").GetString() is { } r &&
                     Path.IsPathFullyQualified(r) &&
@@ -564,7 +620,7 @@ internal static partial class AutoUpdater
         return false;
     }
 
-    private static void SaveReceipt(string logsFolder, string logFile, string version, int exitCode, bool monitorReady, string installerLog, int installerExitCode)
+    private static bool SaveReceipt(string logsFolder, string logFile, string version, int exitCode, bool monitorReady, string installerLog, int installerExitCode)
     {
         var receipt = new JsonObject
         {
@@ -581,8 +637,9 @@ internal static partial class AutoUpdater
         {
             File.WriteAllText(tempFile, receipt.ToJsonString(), new UTF8Encoding(false));
             File.Move(tempFile, receiptFile, overwrite: true);
+            return true;
         }
-        catch (Exception ex) { Log(logFile, $"Could not save installer receipt: {ex.GetType().Name}"); }
+        catch (Exception ex) { Log(logFile, $"Could not save installer receipt: {ex.GetType().Name}"); return false; }
         finally { try { File.Delete(tempFile); } catch { } }
     }
 }
