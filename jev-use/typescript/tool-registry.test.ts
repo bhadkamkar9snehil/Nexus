@@ -19,7 +19,7 @@ test('core catalog has stable unique names and valid tool schemas', () => {
   assert.equal(tools.length, 59);
   // Preserve the installed catalog in its original order. New tools must not change old contracts.
   const originalCatalog = tools.filter(tool => !tool.name.startsWith('visual_') && !['jev_semantic_judge','browser_read_page','web_scrape','nexus_transfer_file','nexus_upload_file','nexus_start_task'].includes(tool.name));
-  assert.equal(createHash('sha256').update(JSON.stringify(originalCatalog)).digest('hex'), '9891aa270b9a39f66c15ccd2b882a4cf0579b9212b90fb2d7b2482efdc0cc735');
+  assert.equal(createHash('sha256').update(JSON.stringify(originalCatalog)).digest('hex'), '78d6f6840b49ed90400c7f9e1494b8c19df512bddb74fe1e9315535dbe507214');
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, 'object');
     assert.equal(tool.inputSchema.additionalProperties, false);

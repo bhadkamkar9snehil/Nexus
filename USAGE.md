@@ -154,7 +154,7 @@ ode.exe relay-client.mjs setup https://<your relay>` once on each computer and r
 
 ## Network investigation
 
-`network_probe` always returns local interfaces. Optional `system` gathers Windows IP configuration, routing table and neighbor cache. Supply `host` for DNS/reverse DNS and optional TCP `ports` (up to100), `ping`, `trace`, or `tls_port`. Supply `url` for a HEAD request with redirects reported but not followed. TLS records peer certificate dates, subject, issuer, negotiated protocol and validation status. `timeout_ms` is100–10000 (default2000).
+`network_probe` always returns local interfaces. Optional `system` gathers Windows IP configuration, firewall profiles, routing table and neighbor cache. `quic_ports` sends a QUIC packet with a reserved version over UDP and reports `quic_reply` or `no_reply` (blocked, or not a QUIC server). `dns_servers` asks each listed server for A records directly. Supply `host` for DNS/reverse DNS and optional TCP `ports` (up to100), `ping`, `trace`, or `tls_port`. Supply `url` for a HEAD request with redirects reported but not followed. TLS records peer certificate dates, subject, issuer, negotiated protocol and validation status. `timeout_ms` is100–10000 (default2000).
 
 An explicit IPv4 `subnet` from /24 through /30 triggers bounded ICMP discovery, up to16 probes at once and a maximum timeout of5000ms. No subnet is scanned by default. A timeout or missing ICMP response does not prove a host is absent. Windows tools supply ping, trace and system observations; unavailable commands and errors are returned. This is not a packet capture, UDP scanner, SNMP inventory or a substitute for authenticated device discovery.
 
