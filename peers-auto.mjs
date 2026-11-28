@@ -127,14 +127,15 @@ export async function pairWithCode(root, code, { fetcher = fetch, autoReply } = 
   let info;
   try { info = JSON.parse(Buffer.from(String(code).trim().replace(/^nexus-/, ''), 'base64url').toString('utf8')); } catch { throw new Error('That is not a Nexus pairing code'); }
   if (!/^[\w.-]{1,40}$/.test(info?.n ?? '') || !Array.isArray(info.a) || typeof info.s !== 'string') throw new Error('That is not a Nexus pairing code');
-  const pending = await addPeer(root, { name: info.n, url: String(info.a[0]) });
   let lastError = 'No address answered';
   const offered = info.a.map(String).find(isRelayAddress);
   // No manual step: join the relay the code names (its origin only; this computer makes its own mailbox and key).
   if (offered?.startsWith('https://') && !await relayAddress(root)) await setupRelay(root, new URL(offered).origin);
   const mine = await relayAddress(root);
   const own = [...await localAddresses(), ...[mine].filter(Boolean)];
-  for (const url of info.a.map(String)) {
+  const addresses = offered ? info.a.map(String).filter(isRelayAddress) : info.a.map(String);
+  const pending = await addPeer(root, { name: info.n, url: addresses[0] });
+  for (const url of addresses) {
     // Through the relay the other side cannot see where we are, so we tell it our own relay address.
     if (isRelayAddress(url) && !mine) { lastError = 'This computer has no internet relay set up (relay-client.mjs setup)'; continue; }
     try {

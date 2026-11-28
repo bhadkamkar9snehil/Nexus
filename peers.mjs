@@ -5,7 +5,7 @@ import { beginPeerSpan, traceId, validTrace, validSpan, validMessage } from './p
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { maskAddress, peerFetch, relayAddress } from './relay-client.mjs';
+import { isRelayAddress, maskAddress, peerFetch, relayAddress, setupRelay } from './relay-client.mjs';
 import { candidates, cleanAddresses, routeOf, timeoutFor } from './peer-routes.mjs';
 
 const kinds = ['mail', 'chat'];
@@ -267,7 +267,11 @@ export async function receive(root, authorization, payload, onMessage) {
   try { validate(payload); } catch {beginPeerSpan(root,'peer_receive',{peer:peer.name}).finish('blocked','refused',{httpStatus:400});return 400;}
   if (!peer.allow[payload.kind]) {beginPeerSpan(root,'peer_receive',{peer:peer.name,kind:payload.kind}).finish('blocked','refused',{httpStatus:403});return 403;}
   const messageId=validMessage(payload.messageId)?payload.messageId:randomBytes(16).toString('hex');
-  await updateRoutes(root, peer.name, { addresses: payload.addresses });
+  const advertised = cleanAddresses(payload.addresses);
+  await updateRoutes(root, peer.name, { addresses: advertised });
+  // Only a paired, token-checked peer gets here. Without a mailbox of our own it could not reach us over the internet.
+  const offered = advertised.find(u => isRelayAddress(u) && u.startsWith('https://'));
+  if (offered && !await relayAddress(root)) { await setupRelay(root, new URL(offered).origin); addressCache.at = 0; }
   const delivery = `${root}|${peer.name}|${messageId}`;
   if (delivered.has(delivery) || (await mailbox(root)).some(m => m.box === 'in' && m.peer === peer.name && m.messageId === messageId)) return 200;
   delivered.add(delivery);

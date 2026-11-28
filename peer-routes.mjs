@@ -16,8 +16,13 @@ export function cleanAddresses(list) {
     (isRelayAddress(u) || (DIRECT.test(u) && !/^http:\/\/(127\.|0\.|169\.254\.)/.test(u)))))].slice(0, 12);
 }
 
-/** Order of attempts: the one that last worked, then other direct addresses, then the relay. */
+/**
+ * Order of attempts. A teammate with a relay address is reached only through it, because a stored private address may
+ * belong to a stranger's computer on another network. Otherwise: the one that last worked, other direct ones, the relay.
+ */
 export function candidates(peer) {
+  const relays = [peer.url, ...(peer.urls ?? [])].filter(isRelayAddress);
+  if (!peer.own && relays.length) return [...new Set(relays)];
   const rest = (peer.urls ?? []).filter(u => u !== peer.url);
   return [peer.url, ...rest.filter(u => !isRelayAddress(u)), ...rest.filter(isRelayAddress)];
 }

@@ -407,6 +407,9 @@ internal static partial class AutoUpdater
         return 0;
     }
 
+    // Not the old shared "Nexus-AutoUpdate-Install": a copy owned by Administrators made every later update fail with "Access is denied".
+    private static string InstallTaskName(bool elevated) => $"Nexus-Update-{Environment.UserName}-{(elevated ? "admin" : "user")}";
+
     private static void ScheduleAndStartInstallTask(string exePath, string arguments, string workingDir, bool elevated)
     {
         using var identity = WindowsIdentity.GetCurrent();
@@ -424,13 +427,13 @@ internal static partial class AutoUpdater
         action.Path = exePath;
         action.Arguments = arguments;
         action.WorkingDirectory = workingDir;
-        dynamic task = folder.RegisterTaskDefinition("Nexus-AutoUpdate-Install", definition, 6, identity.Name, null, 3, null);
+        dynamic task = folder.RegisterTaskDefinition(InstallTaskName(elevated), definition, 6, identity.Name, null, 3, null);
         task.Run(null);
     }
 
     private static async Task<int> ExecuteInstallAsync(string root, string logsFolder, string logFile, string? file, string? version, bool noRecovery, bool currentUser)
     {
-        const string taskName = "Nexus-AutoUpdate-Install";
+        var taskName = InstallTaskName(IsElevated());
         var safeVersion = version is not null && SafeVersionRegex().IsMatch(version) ? version.TrimStart('v') : "unknown";
         var installerLog = Path.Combine(logsFolder, $"installer-{safeVersion}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
         var resultCode = 1;

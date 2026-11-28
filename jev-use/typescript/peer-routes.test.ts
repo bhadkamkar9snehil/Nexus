@@ -16,7 +16,8 @@ async function install(name: string) {
 
 test('addresses are filtered, ordered and named', () => {
   assert.deepEqual(cleanAddresses(['http://10.0.0.5:8770', 'http://127.0.0.1:8770', 'http://169.254.1.1:8770', 'http://evil.example:80', 'file:///x', relay, 7]), ['http://10.0.0.5:8770', relay]);
-  assert.deepEqual(candidates({ url: 'http://10.0.0.5:8770', urls: [relay, 'http://100.90.0.1:8770', 'http://10.0.0.5:8770'] }), ['http://10.0.0.5:8770', 'http://100.90.0.1:8770', relay]);
+  assert.deepEqual(candidates({ url: 'http://192.168.1.4:8770', urls: [relay] }), [relay], 'a teammate is reached only through the relay');
+  assert.deepEqual(candidates({ own: true, url: 'http://10.0.0.5:8770', urls: [relay, 'http://100.90.0.1:8770', 'http://10.0.0.5:8770'] }), ['http://10.0.0.5:8770', 'http://100.90.0.1:8770', relay]);
   assert.deepEqual(['http://10.0.0.5:8770', 'http://100.90.0.1:8770', relay].map(routeOf), ['lan', 'tailscale', 'relay']);
 });
 
@@ -41,4 +42,14 @@ test('a dead address falls through to the next, which is remembered; a retried m
   // The receiver learned the sender's addresses from the message itself.
   const stored = JSON.parse(await readFile(join(b, 'secrets', 'peers.json'), 'utf8')).peers[0];
   assert.ok(stored.urls.length >= 1);
+});
+
+test('a paired computer without a relay joins the one a paired peer shares; an unknown caller cannot', async () => {
+  const b = await install('b');
+  const token = (await addPeer(b, { name: 'a', url: 'http://10.0.0.1:8770' })).inbound;
+  const message = { kind: 'chat', body: 'hi', addresses: [relay] };
+  assert.equal(await receive(b, 'Bearer ' + 'x'.repeat(48), message), 401);
+  await assert.rejects(readFile(join(b, 'secrets', 'relay.json')));
+  assert.equal(await receive(b, 'Bearer ' + token, message), 200);
+  assert.equal(JSON.parse(await readFile(join(b, 'secrets', 'relay.json'), 'utf8')).url, 'https://relay.example');
 });
