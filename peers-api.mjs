@@ -2,7 +2,6 @@
 import { createPairingCode, discoverAndPair, localAddresses, pairWithCode, runTailscale, tailnet } from './peers-auto.mjs';
 import { compactMailbox, listPeers, loadMailboxSettings, mailboxStats, mailboxSummary, markRead, readMailbox, removePeer, saveMailboxSettings, selfName, sendMessage, setPeer } from './peers.mjs';
 import { loadResponderConfig, saveResponderConfig } from './agent-responder.mjs';
-import { firewall } from './firewall.mjs';
 import { discoverSessions } from './sessions.mjs';
 
 const fail = (status, message) => ({ status, json: { error: message } });
@@ -31,7 +30,7 @@ export async function handleApi(root, method, url, body, { run = runTailscale, f
         const responder = responderState(await loadResponderConfig(root));
         return { status: 200, json: { peers, responder } };
       }
-      return { status: 200, json: { self: { name: await selfName(root), addresses: await localAddresses(run), tailscale: Boolean(net) }, firewall: await firewall(), peers, responder: responderState(await loadResponderConfig(root)) } };
+      return { status: 200, json: { self: { name: await selfName(root), addresses: await localAddresses(run), tailscale: Boolean(net) }, peers, responder: responderState(await loadResponderConfig(root)) } };
     }
     if (method === 'GET' && path === '/api/mail') {
       if (url.searchParams.has('summary')) return { status: 200, json: { threads: await mailboxSummary(root) } };
@@ -66,7 +65,6 @@ export async function handleApi(root, method, url, body, { run = runTailscale, f
     if (path === '/api/peers/refresh') return { status: 200, json: { paired: await discoverAndPair(root, { run }) } };
     if (path === '/api/peers/set') return { status: 200, json: await setPeer(root, String(body.name), { enabled: body.enabled, allow: body.allow }) };
     if (path === '/api/peers/remove') { await removePeer(root, String(body.name)); return { status: 200, json: {} }; }
-    if (path === '/api/firewall/open') return { status: 200, json: await firewall({ create: true }) };
     if (path === '/api/mail/send') return { status: 200, json: await sendMessage(root, { to: String(body.to), kind: body.kind === 'mail' ? 'mail' : 'chat', subject: body.subject, body: String(body.body ?? '') }) };
     if (path === '/api/mail/read') { await markRead(root, Array.isArray(body.ids) ? body.ids.map(String) : []); return { status: 200, json: {} }; }
     if (path === '/api/responder') {

@@ -1,5 +1,5 @@
 type Allow = { mail?: boolean; chat?: boolean };
-type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean }; paired: boolean; own: boolean; responder?: { enabled?: boolean; autonomy?: 'safe' | 'full' } };
+type Peer = { name: string; url: string; enabled: boolean; allow: { mail: boolean; chat: boolean }; paired: boolean; own: boolean; route: 'lan' | 'tailscale' | 'relay'; responder?: { enabled?: boolean; autonomy?: 'safe' | 'full' } };
 type Message = { id: string; box: 'in' | 'out'; at: number; peer: string; kind: string; subject?: string; body: string; read?: boolean; trace?: string; parentSpanId?: string; messageId?: string; hop?: number };
 export function listPeers(root: string): Promise<Peer[]>;
 export function getPeer(root: string, name: string): Promise<Peer | null>;

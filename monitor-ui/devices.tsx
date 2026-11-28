@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Check, Copy, KeyRound, MessagesSquare, Monitor, Network, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, MessagesSquare, Monitor, Network, RefreshCw, Trash2 } from 'lucide-react';
 import { Panel } from './upstream/viz';
 import { Button } from './upstream/button';
+
+const routeNames = { lan: 'LAN', tailscale: 'Tailscale', relay: 'Internet relay' };
 import { Chip, Peer, api, field, peerStatus, usePeerInfo } from './mail';
 
 const cell = 'px-3 py-2.5 align-middle';
@@ -31,8 +33,6 @@ export function DevicesView() {
     <Panel icon={Monitor} title="This computer" meta={info.self.name}>
       <div className="flex flex-wrap items-center gap-2">
         <Chip active={info.self.tailscale}>{info.self.tailscale ? 'Tailscale connected' : 'Tailscale unavailable'}</Chip>
-        <Chip active={info.firewall.open}>{`Port ${info.firewall.port} ${info.firewall.open ? 'open' : 'blocked'}`}</Chip>
-        {!info.firewall.open && <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() => api('/api/firewall/open', {}))}><ShieldCheck />Open port</Button>}
         <span className="min-w-0 break-all text-xs text-muted-foreground">{info.self.addresses.join(' · ')}</span>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
@@ -83,7 +83,7 @@ export function DevicesView() {
             {info.peers.map(p => <tr key={p.name} className="border-b last:border-0">
               <th scope="row" className={cell + ' font-normal'}>
                 <span className="flex items-center gap-2"><span className="text-sm font-medium">{p.name}</span>{p.own && <Chip>Your device</Chip>}</span>
-                <span className="block break-all text-muted-foreground">{p.url}</span>
+                <span className="block break-all text-muted-foreground">{p.route ? `${routeNames[p.route]} · ` : ''}{p.url.replace(/\/box\/.*$/, '')}</span>
               </th>
               <td className={cell}><Chip active={p.enabled && p.paired && p.online === true}>{peerStatus(p)}</Chip></td>
               <td className={cell}><input type="checkbox" role="switch" aria-label={`${p.name} enabled`} checked={p.enabled} disabled={busy} onChange={e => set(p, { enabled: e.target.checked })} /></td>

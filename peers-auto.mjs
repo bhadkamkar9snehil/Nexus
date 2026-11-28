@@ -7,8 +7,9 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
-import { addPeer, listPeers, removePeer, selfName, setPeer } from './peers.mjs';
-import { isRelayAddress, peerFetch, relayAddress } from './relay-client.mjs';
+import { addPeer, listPeers, removePeer, selfName, setPeer, updateRoutes } from './peers.mjs';
+import { cleanAddresses } from './peer-routes.mjs';
+import { isRelayAddress, peerFetch, relayAddress, setupRelay } from './relay-client.mjs';
 
 export const PEER_PORT = Number(process.env.NEXUS_WEBHOOK_PORT || 8770);
 const folder = (root) => process.env.NEXUS_PEERS_DIR || join(root, 'secrets');
@@ -116,7 +117,9 @@ export async function handlePair(root, remoteIp, body) {
   if (typeof body.token !== 'string' || body.token.length < 16 || !/^[\w.-]{1,40}$/.test(body?.name ?? '')) return { status: 400, json: { error: 'name and token required' } };
   await writeFile(codesFile(root), JSON.stringify(codes.filter(c => c !== hit))); // single use
   const mine = await addPeer(root, { name: body.name, url: isRelayAddress(body.url) ? body.url : `http://${remoteIp}:${PEER_PORT}`, outbound: body.token, autoReply: hit.autoReply });
-  return { status: 200, json: { name: await selfName(root), token: mine.inbound } };
+  await updateRoutes(root, body.name, { addresses: body.addresses });
+  const addresses = [...await localAddresses(), ...[await relayAddress(root)].filter(Boolean)];
+  return { status: 200, json: { name: await selfName(root), token: mine.inbound, addresses } };
 }
 
 /** Enters a code shown on the other computer: tries each address it listed until one answers. */
@@ -126,16 +129,21 @@ export async function pairWithCode(root, code, { fetcher = fetch, autoReply } = 
   if (!/^[\w.-]{1,40}$/.test(info?.n ?? '') || !Array.isArray(info.a) || typeof info.s !== 'string') throw new Error('That is not a Nexus pairing code');
   const pending = await addPeer(root, { name: info.n, url: String(info.a[0]) });
   let lastError = 'No address answered';
+  const offered = info.a.map(String).find(isRelayAddress);
+  // No manual step: join the relay the code names (its origin only; this computer makes its own mailbox and key).
+  if (offered?.startsWith('https://') && !await relayAddress(root)) await setupRelay(root, new URL(offered).origin);
   const mine = await relayAddress(root);
+  const own = [...await localAddresses(), ...[mine].filter(Boolean)];
   for (const url of info.a.map(String)) {
     // Through the relay the other side cannot see where we are, so we tell it our own relay address.
     if (isRelayAddress(url) && !mine) { lastError = 'This computer has no internet relay set up (relay-client.mjs setup)'; continue; }
     try {
-      const reply = await peerFetch(url + '/peer/pair', { method: 'POST', signal: AbortSignal.timeout(isRelayAddress(url) ? 12000 : 4000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: await selfName(root), secret: info.s, token: pending.inbound, ...(isRelayAddress(url) ? { url: mine } : {}) }) }, fetcher);
+      const reply = await peerFetch(url + '/peer/pair', { method: 'POST', signal: AbortSignal.timeout(isRelayAddress(url) ? 12000 : 4000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: await selfName(root), secret: info.s, token: pending.inbound, addresses: own, ...(isRelayAddress(url) ? { url: mine } : {}) }) }, fetcher);
       if (reply.status === 403) { lastError = 'The code was refused (expired or already used)'; break; }
       if (!reply.ok) { lastError = 'HTTP ' + reply.status; continue; }
       const answer = await reply.json();
       await addPeer(root, { name: info.n, url, outbound: answer.token, autoReply });
+      await updateRoutes(root, info.n, { addresses: cleanAddresses(answer.addresses).length ? answer.addresses : info.a });
       return { name: info.n, url };
     } catch (error) { lastError = `${url}: ${error.message}`; }
   }

@@ -90,7 +90,7 @@ try{
  // Use demo conversations so screenshots never contain private peer data.
  const responder={enabled:true,autonomy:'safe'};
  const device={name:'Workshop PC',url:'http://192.0.2.2:8770',enabled:true,paired:true,own:true,online:true,allow:{chat:true,mail:true},responder:{}};
- const fixture={self:{name:'Demo laptop',addresses:['192.0.2.1'],tailscale:true},firewall:{open:true,port:8770},peers:[device],responder};
+ const fixture={self:{name:'Demo laptop',addresses:['192.0.2.1'],tailscale:true},peers:[device],responder};
  const at=Date.UTC(2026,10,21,9);
  let unread=1;
  const messages=[

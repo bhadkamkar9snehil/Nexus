@@ -5,7 +5,8 @@ import { beginPeerSpan, traceId, validTrace, validSpan, validMessage } from './p
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { maskAddress, peerFetch } from './relay-client.mjs';
+import { maskAddress, peerFetch, relayAddress } from './relay-client.mjs';
+import { candidates, cleanAddresses, routeOf, timeoutFor } from './peer-routes.mjs';
 
 const kinds = ['mail', 'chat'];
 const maxBody = 64 * 1024;
@@ -20,7 +21,7 @@ async function save(root, config) {
   await mkdir(folder(root), { recursive: true });
   await writeFile(file(root, 'peers.json'), JSON.stringify(config, null, 2));
 }
-const clean = ({ name, url, enabled, allow, outbound, own, responder }) => ({ name, url: maskAddress(url), enabled, allow, paired: Boolean(outbound), own: Boolean(own), responder });
+const clean = ({ name, url, enabled, allow, outbound, own, responder }) => ({ name, url: maskAddress(url), route: routeOf(url), enabled, allow, paired: Boolean(outbound), own: Boolean(own), responder });
 
 /** The name this installation introduces itself with: the computer name unless `self` is set in peers.json. */
 export async function selfName(root) {
@@ -40,6 +41,7 @@ export async function addPeer(root, { name, url, outbound, allow, own, autoReply
   let peer = config.peers.find(p => p.name === name);
   if (!peer) config.peers.push(peer = { name, enabled: true, allow: { mail: true, chat: true }, inbound: randomBytes(24).toString('hex') });
   Object.assign(peer, { url: url.replace(/\/+$/, ''), ...(outbound === undefined ? {} : { outbound }) });
+  peer.urls = [...new Set([...(peer.urls ?? []), peer.url])];
   if (allow) peer.allow = { mail: allow.mail !== false, chat: allow.chat !== false };
   if (own !== undefined) peer.own = own; // a device of the same Tailscale account (the owner's own computer)
   if (typeof autoReply === 'boolean') peer.responder = { ...peer.responder, enabled: autoReply };
@@ -65,6 +67,29 @@ export async function setPeer(root, name, { enabled, allow, outbound, responder 
   }
   await save(root, config);
   return clean(peer);
+}
+
+/** Stores the addresses a paired peer advertises (`addresses`) and the one that last worked (`url`). */
+export async function updateRoutes(root, name, { addresses, url } = {}) {
+  const config = await load(root);
+  const peer = config.peers.find(p => p.name === name);
+  if (!peer) return;
+  const before = JSON.stringify([peer.url, peer.urls]);
+  const advertised = cleanAddresses(addresses);
+  if (url) peer.url = url;
+  // An advertised list replaces the old one, so stale networks drop out; the address in use is always kept.
+  peer.urls = [...new Set([peer.url, ...(advertised.length ? advertised : peer.urls ?? [])])];
+  if (JSON.stringify([peer.url, peer.urls]) !== before) await save(root, config);
+}
+
+let addressCache = { at: 0, list: [] };
+/** Where this computer can be reached now. Cached briefly: finding the Tailscale address starts a process. */
+export async function ownAddresses(root) {
+  if (Date.now() - addressCache.at > 60_000) {
+    const { localAddresses } = await import('./peers-auto.mjs');
+    addressCache = { at: Date.now(), list: await localAddresses() };
+  }
+  return [...addressCache.list, ...[await relayAddress(root)].filter(Boolean)];
 }
 
 export async function removePeer(root, name) {
@@ -205,13 +230,24 @@ export async function sendMessage(root, { to, kind = 'mail', subject, body, hop,
   if (!peer.outbound) throw new Error('Pairing is incomplete: set the token the peer gave you (nexus_peers set outbound_token)');
   const self = (await load(root)).self ?? 'nexus';
   stage='transport_error';
-  const response = await peerFetch(peer.url + '/peer/message', {
-    method: 'POST', signal: AbortSignal.timeout(10000),
+  const request = {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + peer.outbound },
-    body: JSON.stringify({ kind, subject, body, trace:span.traceId,parentSpanId:span.spanId,messageId, ...(hop === undefined ? {} : { hop }) }),
-  }, fetcher);
+    body: JSON.stringify({ kind, subject, body, trace:span.traceId,parentSpanId:span.spanId,messageId, addresses: await ownAddresses(root), ...(hop === undefined ? {} : { hop }) }),
+  };
+  // The same messageId goes to every address, so a retry after a lost answer is stored once by the receiver.
+  const routes = candidates(peer);
+  let response, failure, worked;
+  for (const url of routes) {
+    try {
+      response = await peerFetch(url + '/peer/message', { ...request, signal: AbortSignal.timeout(timeoutFor(url, routes.length > 1)) }, fetcher);
+      if (response.ok) { worked = url; break; }
+    } catch (error) { failure = error; }
+  }
+  if (!response) throw failure;
   httpStatus=response.status;
   if (!response.ok) {stage='refused';throw new Error(`Peer refused the message (${response.status})`);}
+  if (worked !== peer.url) await updateRoutes(root, to, { url: worked });
   stage='storage_error';
   const message = { id: randomBytes(6).toString('hex'), trace:span.traceId,parentSpanId:span.spanId,messageId, box: 'out', at: Date.now(), peer: to, kind, subject, body, ...(hop === undefined ? {} : { hop }) };
   await store(root, message);
@@ -219,6 +255,8 @@ export async function sendMessage(root, { to, kind = 'mail', subject, body, hop,
   return { id: message.id, delivered: true, from: self };
   } catch(error){span.finish(stage==='refused'?'blocked':'error',stage,{httpStatus});throw error;}
 }
+
+const delivered = new Set(); // catches a second copy that arrives while the first is still being stored
 
 /** Handles POST /peer/message for the receiver. Returns an HTTP status; `onMessage` is called for each stored message. */
 export async function receive(root, authorization, payload, onMessage) {
@@ -229,9 +267,14 @@ export async function receive(root, authorization, payload, onMessage) {
   try { validate(payload); } catch {beginPeerSpan(root,'peer_receive',{peer:peer.name}).finish('blocked','refused',{httpStatus:400});return 400;}
   if (!peer.allow[payload.kind]) {beginPeerSpan(root,'peer_receive',{peer:peer.name,kind:payload.kind}).finish('blocked','refused',{httpStatus:403});return 403;}
   const messageId=validMessage(payload.messageId)?payload.messageId:randomBytes(16).toString('hex');
+  await updateRoutes(root, peer.name, { addresses: payload.addresses });
+  const delivery = `${root}|${peer.name}|${messageId}`;
+  if (delivered.has(delivery) || (await mailbox(root)).some(m => m.box === 'in' && m.peer === peer.name && m.messageId === messageId)) return 200;
+  delivered.add(delivery);
+  if (delivered.size > 500) delivered.delete(delivered.values().next().value);
   const span=beginPeerSpan(root,'peer_receive',{peer:peer.name,kind:payload.kind,trace:validTrace(payload.trace)?payload.trace:undefined,parent:validSpan(payload.parentSpanId)?payload.parentSpanId:undefined,messageId,hop:payload.hop,bytes:Buffer.byteLength(payload.body)});
   const message = { id: randomBytes(6).toString('hex'), trace:span.traceId,parentSpanId:span.spanId,messageId, box: 'in', at: Date.now(), peer: peer.name, kind: payload.kind, subject: payload.subject, body: payload.body, ...(payload.hop === undefined ? {} : { hop: payload.hop }) };
-  try{await store(root, message);}catch(error){span.finish('error','storage_error');throw error;}
+  try{await store(root, message);}catch(error){delivered.delete(delivery);span.finish('error','storage_error');throw error;}
   span.finish('passed','received',{httpStatus:200});
   onMessage?.(message);
   return 200;
