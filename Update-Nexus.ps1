@@ -82,6 +82,22 @@ function Get-NexusUninstallInfo([string]$InstallRoot = '') {
     return $entries | Sort-Object { try { [version]([string]$_.DisplayVersion) } catch { [version]'0.0.0' } } -Descending | Select-Object -First 1
 }
 if ($FunctionsOnly) { return }
+$nativeUpdater = Join-Path $PSScriptRoot 'Nexus.Setup.exe'
+if (Test-Path -LiteralPath $nativeUpdater -PathType Leaf) {
+    $nativeArgs = @('auto-update')
+    if ($Install) { $nativeArgs += '--install' }
+    if ($DryRun) { $nativeArgs += '--dry-run' }
+    if ($NoRecovery) { $nativeArgs += '--no-recovery' }
+    if ($CurrentUser) { $nativeArgs += '--current-user' }
+    if ($File) { $nativeArgs += @('--file', $File) }
+    if ($Version) { $nativeArgs += @('--version', $Version) }
+    if ($ReleasesJson) { $nativeArgs += @('--releases-json', $ReleasesJson) }
+    if ($RunsJson) { $nativeArgs += @('--runs-json', $RunsJson) }
+    if ($InstalledVersion) { $nativeArgs += @('--installed-version', $InstalledVersion) }
+    if ($IdleSeconds -ge 0) { $nativeArgs += @('--idle-seconds', [string]$IdleSeconds) }
+    & $nativeUpdater @nativeArgs
+    exit $LASTEXITCODE
+}
 
 if ($Install) {
     $task = 'Nexus-AutoUpdate-Install'

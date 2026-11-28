@@ -302,10 +302,14 @@ public sealed partial class UpdateHost(string root)
                 case "updates.install":
                     var requestedTag = Text("tag");
                     var requestedSource = Text("source");
-                    void Progress(string message, int? percent = null) => notify(new JsonObject
+                    void Progress(string message, int? percent = null, DownloadMetrics? metrics = null) => notify(new JsonObject
                     {
                         ["type"] = "updateProgress", ["tag"] = requestedTag, ["source"] = requestedSource, ["message"] = message,
-                        ["percent"] = percent
+                        ["percent"] = percent,
+                        ["receivedBytes"] = metrics?.ReceivedBytes,
+                        ["totalBytes"] = metrics?.TotalBytes,
+                        ["bytesPerSecond"] = metrics?.BytesPerSecond is double bps ? Math.Round(bps) : null,
+                        ["etaSeconds"] = metrics?.EtaSeconds
                     });
                     Progress("Looking up the release");
                     var allReleases = await ReleasesAsync();
@@ -335,7 +339,9 @@ public sealed partial class UpdateHost(string root)
         return reply;
     }
 
-    private async Task<string> InstallAsync(Release release, Action<string, int?> progress)
+    private sealed record DownloadMetrics(long ReceivedBytes, long? TotalBytes, double? BytesPerSecond, int? EtaSeconds);
+
+    private async Task<string> InstallAsync(Release release, Action<string, int?, DownloadMetrics?> progress)
     {
         if (!await _installGate.WaitAsync(0)) throw new InvalidOperationException("An update is already in progress.");
         try
@@ -345,7 +351,7 @@ public sealed partial class UpdateHost(string root)
         finally { _installGate.Release(); }
     }
 
-    private async Task<string> LaunchInstallerAsync(Release release, Action<string, int?> progress)
+    private async Task<string> LaunchInstallerAsync(Release release, Action<string, int?, DownloadMetrics?> progress)
     {
         if (release.InstallerUrl is null || release.Sha256 is null) throw new InvalidOperationException("That release has no installer with a published checksum, so it is not installed.");
         var asset = new Uri(release.InstallerUrl);
@@ -368,7 +374,7 @@ public sealed partial class UpdateHost(string root)
                 try { File.Delete(oldFile); } catch { }
             }
         }
-        progress("Downloading the installer", null);
+        progress("Downloading the installer", null, null);
         try
         {
             using var downloadDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(15));
@@ -381,19 +387,31 @@ public sealed partial class UpdateHost(string root)
             await using var output = File.Create(file);
             var buffer = new byte[128 * 1024];
             long received = 0;
+            var totalWatch = Stopwatch.StartNew();
             var refresh = Stopwatch.StartNew();
             int count;
+            void ReportDownloadProgress()
+            {
+                var elapsed = totalWatch.Elapsed.TotalSeconds;
+                double? speed = elapsed >= 0.25 && received > 0 ? received / elapsed : null;
+                int? eta = speed > 0 && size > 0 && size.Value >= received
+                    ? (int)Math.Ceiling((size.Value - received) / speed.Value)
+                    : null;
+                var pct = size > 0 ? (int?)Math.Min(100, received * 100 / size.Value) : null;
+                progress("Downloading the installer", pct, new DownloadMetrics(received, size, speed, eta));
+            }
             while ((count = await input.ReadAsync(buffer, downloadDeadline.Token)) > 0)
             {
                 await output.WriteAsync(buffer.AsMemory(0, count), downloadDeadline.Token);
                 received += count;
                 if (refresh.ElapsedMilliseconds < 300) continue;
-                progress("Downloading the installer", size > 0 ? (int)Math.Min(100, received * 100 / size.Value) : null);
+                ReportDownloadProgress();
                 refresh.Restart();
             }
+            ReportDownloadProgress();
         }
         catch (OperationCanceledException) { throw new InvalidOperationException("The installer download timed out. Try Update now again."); }
-        progress("Verifying the installer checksum", null);
+        progress("Verifying the installer checksum", null, null);
         string hash;
         await using (var stream = File.OpenRead(file)) hash = Convert.ToHexString(await SHA256.HashDataAsync(stream));
         if (!hash.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -411,13 +429,13 @@ public sealed partial class UpdateHost(string root)
             Directory.CreateDirectory(backup);
             foreach (var f in Directory.GetFiles(secrets)) File.Copy(f, Path.Combine(backup, Path.GetFileName(f)), true);
         }
-        progress("Opening Nexus Setup", null);
+        progress("Opening Nexus Setup", null, null);
         var log = Path.Combine(Folder, "manual-update.log");
         var start = new ProcessStartInfo(file) { UseShellExecute = true };
         foreach (var argument in new[] { "/SP-", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", $"/LOG={log}" })
             start.ArgumentList.Add(argument);
         using var installer = Process.Start(start) ?? throw new InvalidOperationException("Nexus Setup could not start.");
-        progress("Follow the Nexus Setup window to continue", null);
+        progress("Follow the Nexus Setup window to continue", null, null);
         await installer.WaitForExitAsync();
         if (installer.ExitCode != 0)
             throw new InvalidOperationException($"Setup ended with code {installer.ExitCode}. You can try Update now again. Details are in %LOCALAPPDATA%\\Nexus\\manual-update.log.");

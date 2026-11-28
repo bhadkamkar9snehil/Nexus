@@ -10,11 +10,13 @@ type Rel={tag:string;name:string;date:string;notes:string;source?:'github'|'gitl
 type SourceState={ok:boolean;error?:string|null};
 type Sources={github?:SourceState;gitlab?:SourceState};
 type Ev={id:string;at:number;kind:string;project:string;title:string};
-type InstallProgress={tag:string;source?:string;message:string;percent:number|null};
+type InstallProgress={tag:string;source?:string;message:string;percent:number|null;receivedBytes?:number|null;totalBytes?:number|null;bytesPerSecond?:number|null;etaSeconds?:number|null};
 const field='w-full rounded-lg border bg-surface px-3 py-2 text-sm';
 const day=(v:string)=>v?new Date(v).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
 const sourceName=(s?:string)=>s==='github'?'GitHub':s==='gitlab'?'GitLab':'Release';
 const relKey=(r:Rel)=>`${r.tag}:${r.source??'default'}`;
+const fmtBytes=(b:number)=>b>=1024*1024?`${(b/(1024*1024)).toFixed(1)} MB`:`${Math.max(1,Math.round(b/1024))} KB`;
+const fmtEta=(s:number)=>s<60?`~${s}s left`:`~${Math.floor(s/60)}m ${s%60}s left`;
 // Release notes are Markdown from the release job: "## What's new" bullets, then "## Checksums". Show only the changes.
 const changes=(notes:string)=>notes.split(/^##\s+Checksums/m)[0].replace(/^##\s+What's new\s*/m,'').split('\n').map(l=>l.replace(/^[-*]\s*/,'').trim()).filter(Boolean);
 
@@ -29,7 +31,11 @@ export function UpdatesView(){
  useEffect(()=>{const h=host();if(!h)return;const on=(e:{data:any})=>{
   if(e.data?.type==='updateAvailable')void load();
   if(e.data?.type==='updateProgress')Installing(previous=>previous&&previous.tag===e.data.tag&&(!e.data.source||!previous.source||previous.source===e.data.source)
-    ? {tag:previous.tag,source:previous.source,message:e.data.message,percent:typeof e.data.percent==='number'?e.data.percent:null}
+    ? {tag:previous.tag,source:previous.source,message:e.data.message,percent:typeof e.data.percent==='number'?e.data.percent:null,
+      receivedBytes:typeof e.data.receivedBytes==='number'?e.data.receivedBytes:null,
+      totalBytes:typeof e.data.totalBytes==='number'?e.data.totalBytes:null,
+      bytesPerSecond:typeof e.data.bytesPerSecond==='number'?e.data.bytesPerSecond:null,
+      etaSeconds:typeof e.data.etaSeconds==='number'?e.data.etaSeconds:null}
     : previous);
  };h.addEventListener('message',on);return()=>h.removeEventListener('message',on);},[load]);
  useEffect(()=>{let stop=false;const t=async()=>{try{const r=await fetch(apiUrl('/webhook-events'));if(r.ok&&!stop)Events((await r.json()).events);}catch{}};t();const i=setInterval(t,10000);return()=>{stop=true;clearInterval(i);};},[]);
@@ -51,6 +57,13 @@ export function UpdatesView(){
  const newerChoices=[latestGl,latestGh].filter((r):r is Rel=>Boolean(r?.newer));
  const differentVersions=Boolean(latestGh?.newer&&latestGl?.newer&&latestGh.tag!==latestGl.tag);
  const isInstalling=(r:Rel)=>Boolean(installing&&installing.tag===r.tag&&(!r.source||!installing.source||installing.source===r.source));
+ const groupedRels=rels.reduce<Array<{tag:string;date:string;notes:string;isCurrent:boolean;newer:boolean;entries:Rel[]}>>((acc,r)=>{
+  let group=acc.find(g=>g.tag===r.tag);
+  if(!group){group={tag:r.tag,date:r.date,notes:r.notes,isCurrent:r.isCurrent,newer:r.newer,entries:[]};acc.push(group);}
+  else{group.isCurrent=group.isCurrent||r.isCurrent;group.newer=group.newer||r.newer;if(!group.notes&&r.notes)group.notes=r.notes;if(!group.date&&r.date)group.date=r.date;}
+  group.entries.push(r);
+  return acc;
+ },[]);
  if(!host())return <Panel icon={History} title="Updates" meta="Desktop app only"><p className="text-sm text-muted-foreground">Open the Nexus desktop app to see versions, update and roll back.</p></Panel>;
  return <>
   <Panel icon={ArrowDownToLine} title="Version" meta={current?`Installed ${current}`:'Not installed from an installer (source checkout)'}><div className="flex flex-wrap items-center gap-3">
@@ -64,7 +77,12 @@ export function UpdatesView(){
    {installing&&<div className="mt-4 space-y-2 rounded-lg border bg-surface p-3">
     <div role="status" className="flex flex-wrap items-center justify-between gap-2 text-sm">
      <span>{installing.tag}{installing.source?` (${sourceName(installing.source)})`:''} · {installing.message}</span>
-     {installing.percent!==null&&<span className="tabular-nums">{installing.percent}%</span>}
+     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground tabular-nums">
+      {typeof installing.receivedBytes==='number'&&<span>{fmtBytes(installing.receivedBytes)}{typeof installing.totalBytes==='number'&&installing.totalBytes>0?` / ${fmtBytes(installing.totalBytes)}`:''}</span>}
+      {typeof installing.bytesPerSecond==='number'&&installing.bytesPerSecond>0&&<span>{fmtBytes(installing.bytesPerSecond)}/s</span>}
+      {typeof installing.etaSeconds==='number'&&installing.etaSeconds>0&&<span>{fmtEta(installing.etaSeconds)}</span>}
+      {installing.percent!==null&&<span className="font-medium text-foreground">{installing.percent}%</span>}
+     </span>
     </div>
     <progress aria-label="Update progress" className="block h-2 w-full accent-signal" max={100} value={installing.percent??undefined}/>
    </div>}
@@ -72,11 +90,11 @@ export function UpdatesView(){
    {autoUpdateAvailable&&<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" role="switch" checked={autoUpdate} disabled={locked} onChange={e=>void setAutoUpdate(e.target.checked)}/>Install updates automatically when I am away</label>}
    {latest?.newer&&<ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{changes(latest.notes).map((c,i)=><li key={i}>{c}</li>)}</ul>}
    {note&&<p role="status" className="mt-3 text-xs text-muted-foreground">{note}</p>}</Panel>
-  <Panel icon={History} title="Versions" meta="Install any release from GitHub or GitLab, including older ones, to roll back" pad="none"><div className="divide-y">
-   {rels.map(r=>{const k=relKey(r);return <div key={k} className="px-4 py-3"><div className="flex flex-wrap items-center gap-3"><button className="min-w-0 flex-1 text-left" onClick={()=>Open(open===k?'':k)} aria-expanded={open===k}><span className="text-sm font-medium">{r.tag}</span>{r.source&&<span className="ml-2 inline-flex items-center rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-muted-foreground">{sourceName(r.source)}</span>}<span className="ml-3 text-xs text-subtle-foreground">{day(r.date)}</span>{r.isCurrent&&<span className="ml-3 inline-flex items-center gap-1 rounded bg-signal-soft px-1.5 text-2xs text-signal"><Check className="size-3"/>Installed</span>}</button>
-    {!r.isCurrent&&<Button size="sm" variant="outline" disabled={locked||!r.installable} title={r.installable?undefined:'No installer with a published checksum'} onClick={()=>install(r)}>{r.newer?<ArrowDownToLine/>:<RotateCcw/>}{isInstalling(r)?'Working…':r.newer?'Update':'Roll back'}</Button>}</div>
-    {open===k&&<ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">{changes(r.notes).map((c,i)=><li key={i}>{c}</li>)}{!changes(r.notes).length&&<li>No release notes.</li>}</ul>}</div>;})}
-   {loaded&&!rels.length&&<p className="p-4 text-sm text-muted-foreground">No releases to show.</p>}</div></Panel>
+  <Panel icon={History} title="Versions" meta="Install any release from GitHub or GitLab, including older ones, to roll back" pad="none"><div className="max-h-96 overflow-y-auto divide-y">
+   {groupedRels.map(g=>{const installable=g.entries.filter(e=>e.installable);const primary=installable.find(e=>e.source==='gitlab')??installable[0]??g.entries[0];const active=g.entries.find(isInstalling);return <div key={g.tag} className="px-4 py-3"><div className="flex flex-wrap items-center gap-3"><button className="min-w-0 flex-1 text-left" onClick={()=>Open(open===g.tag?'':g.tag)} aria-expanded={open===g.tag}><span className="text-sm font-medium">{g.tag}</span>{g.entries.map(e=>e.source&&<span key={relKey(e)} className="ml-2 inline-flex items-center rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-muted-foreground">{sourceName(e.source)}</span>)}<span className="ml-3 text-xs text-subtle-foreground">{day(g.date)}</span>{g.isCurrent&&<span className="ml-3 inline-flex items-center gap-1 rounded bg-signal-soft px-1.5 text-2xs text-signal"><Check className="size-3"/>Installed</span>}</button>
+    {!g.isCurrent&&(installable.length>1?<div className="flex items-center gap-1.5">{installable.map(e=><Button key={relKey(e)} size="sm" variant={e===primary?'outline':'ghost'} disabled={locked} onClick={()=>install(e)}>{e.newer?<ArrowDownToLine/>:<RotateCcw/>}{isInstalling(e)?'Working…':`${e.newer?'Update':'Roll back'} (${sourceName(e.source)})`}</Button>)}</div>:<Button size="sm" variant="outline" disabled={locked||!primary.installable} title={primary.installable?undefined:'No installer with a published checksum'} onClick={()=>install(primary)}>{primary.newer?<ArrowDownToLine/>:<RotateCcw/>}{active?'Working…':primary.newer?'Update':'Roll back'}</Button>)}</div>
+    {open===g.tag&&<ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">{changes(g.notes).map((c,i)=><li key={i}>{c}</li>)}{!changes(g.notes).length&&<li>No release notes.</li>}</ul>}</div>;})}
+   {loaded&&!groupedRels.length&&<p className="p-4 text-sm text-muted-foreground">No releases to show.</p>}</div></Panel>
   <Panel icon={Webhook} title="GitLab" meta="Access and push notifications"><div className="max-w-xl space-y-5">
    <section className="space-y-2"><h3 className="text-sm font-medium">Access token</h3><p className="text-xs text-muted-foreground">{tokenSaved?'A token is saved for this Windows account.':'The release list is private. Save a GitLab access token with read_api scope.'}</p>
     <input type="password" aria-label="GitLab access token" autoComplete="off" className={field} value={token} onChange={e=>Token(e.target.value)}/>

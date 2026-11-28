@@ -17,7 +17,8 @@ internal static class Program
         try
         {
             if (args is ["self-test"]) { SelfTest.Run(); return 0; }
-            if (args.Length < 2) throw new ArgumentException("Usage: Nexus.Setup preflight|provision|repair <installation directory> [result file] [--browser] [--search]");
+            if (args.Length >= 1 && args[0] == "auto-update") return await AutoUpdater.RunAsync(args[1..], Logs);
+            if (args.Length < 2) throw new ArgumentException("Usage: Nexus.Setup preflight|provision|repair|auto-update <installation directory> [result file] [--browser] [--search]");
             var operation = args[0];
             if (operation == "preflight")
             {
