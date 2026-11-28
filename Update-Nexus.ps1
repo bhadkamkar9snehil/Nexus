@@ -4,7 +4,7 @@
 #   3. install silently through a one-off task in the user's session, so it outlives the monitor the installer closes.
 # Turn it off with the Install updates automatically switch on the Updates page (updates.json, autoUpdate=false).
 # -DryRun reports the decision without downloading or installing; the -Releases/-Installed/-Idle/-Runs overrides make that testable.
-param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson, [switch]$FunctionsOnly, [switch]$NoRecovery)
+param([switch]$Install, [string]$File, [string]$Version, [switch]$DryRun, [string]$ReleasesJson, [string]$InstalledVersion, [int]$IdleSeconds = -1, [string]$RunsJson, [switch]$FunctionsOnly, [switch]$NoRecovery, [switch]$CurrentUser)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $folder = Join-Path $env:LOCALAPPDATA 'Nexus'
@@ -65,6 +65,22 @@ function Save-NexusInstallReceipt([string]$TargetVersion, [int]$ExitCode, [bool]
         Write-Log ('Could not save installer receipt: ' + $_.Exception.GetType().Name)
     } finally { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue }
 }
+function Get-NexusUninstallInfo([string]$InstallRoot = '') {
+    $subkey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1'
+    $entries = @(
+        (Get-ItemProperty -LiteralPath ('HKLM:\' + $subkey) -ErrorAction SilentlyContinue),
+        (Get-ItemProperty -LiteralPath ('HKCU:\' + $subkey) -ErrorAction SilentlyContinue)
+    ) | Where-Object { $_ }
+    if ($InstallRoot) {
+        $normalized = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+        $matched = @($entries | Where-Object {
+            $_.InstallLocation -and [IO.Path]::IsPathRooted([string]$_.InstallLocation) -and
+            [IO.Path]::GetFullPath([string]$_.InstallLocation).TrimEnd('\') -ieq $normalized
+        } | Sort-Object { try { [version]([string]$_.DisplayVersion) } catch { [version]'0.0.0' } } -Descending)
+        if ($matched.Count -gt 0) { return $matched[0] }
+    }
+    return $entries | Sort-Object { try { [version]([string]$_.DisplayVersion) } catch { [version]'0.0.0' } } -Descending | Select-Object -First 1
+}
 if ($FunctionsOnly) { return }
 
 if ($Install) {
@@ -85,7 +101,7 @@ if ($Install) {
         }
         if ($safeVersion -eq 'unknown') { throw 'Invalid target Nexus version.' }
         if (-not $NoRecovery) {
-            $previous = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+            $previous = Get-NexusUninstallInfo -InstallRoot $PSScriptRoot
             $previousVersion = [string]$previous.DisplayVersion
             $previousRoot = [string]$previous.InstallLocation
             if (-not $previousVersion -or -not [IO.Path]::IsPathRooted($previousRoot) -or
@@ -108,13 +124,15 @@ if ($Install) {
             Write-Log 'Installer rollback disabled by explicit command-line option.'
         }
         Write-Log "Installing $Version; installer diagnostic log: $installerLog"
+        $isElevatedInstall = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', ('/LOG="' + $installerLog + '"'))
+        if ($CurrentUser -or -not $isElevatedInstall) { $arguments += '/CURRENTUSER' }
         $installer = Start-Process -FilePath $File -ArgumentList $arguments -Wait -PassThru
         $installerExitCode = [int]$installer.ExitCode
         $resultCode = $installerExitCode
         Write-Log "Installer finished with exit code $resultCode; log: $installerLog"
         if ($resultCode -eq 0) {
-            $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+            $uninstall = Get-NexusUninstallInfo -InstallRoot $PSScriptRoot
             $registeredVersion = [string]$uninstall.DisplayVersion
             if ($registeredVersion -ne $safeVersion) {
                 Write-Log "Installer exited successfully, but installed version was not verified (registered: $registeredVersion)"
@@ -155,7 +173,7 @@ if ($Install) {
             } catch { }
         } elseif ($recoverySnapshot -and $resultCode -ne 0) {
             try {
-                $after = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+                $after = Get-NexusUninstallInfo -InstallRoot $previousRoot
                 if ([string]$after.DisplayVersion -eq $previousVersion -and
                     (Test-NexusMonitorHealthy -InstallRoot $previousRoot)) {
                     $recoveryStatus = 'previous-version-running'
@@ -169,7 +187,7 @@ if ($Install) {
                     if ($restored -ne $previousVersion) { throw 'Recovery restored an unexpected version.' }
                     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $previousRoot 'Setup.ps1') -NoBrowserAtSignIn
                     if ($LASTEXITCODE -ne 0) { throw 'Previous Nexus setup failed after file restoration.' }
-                    $registry = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+                    $registry = Get-NexusUninstallInfo -InstallRoot $previousRoot
                     if ([string]$registry.DisplayVersion -ne $previousVersion -or
                         -not (Test-NexusMonitorHealthy -InstallRoot $previousRoot)) {
                         throw 'Previous Nexus version or monitor could not be verified after rollback.'
@@ -194,7 +212,7 @@ if ($Install) {
 }
 
 # Only an installer-managed copy updates itself; a source checkout is updated with git.
-$key = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1' -ErrorAction SilentlyContinue
+$key = Get-NexusUninstallInfo -InstallRoot $PSScriptRoot
 $installed = if ($InstalledVersion) { $InstalledVersion } elseif ($key) { $key.DisplayVersion } else { $null }
 if (-not $installed) { Done 'none' 'not installed from an installer' }
 if (-not $InstalledVersion -and $key.InstallLocation.TrimEnd('\') -ne $PSScriptRoot.TrimEnd('\')) { Done 'none' 'this copy is not the installed one' }
@@ -329,7 +347,10 @@ if (Test-Path $secrets) {
 }
 $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Install -File "{1}" -Version {2}' -f $PSCommandPath, $staged, $latest.Tag
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$principalArgs = @{ UserId = "$env:USERDOMAIN\$env:USERNAME"; LogonType = 'Interactive' }
+if ($isElevated) { $principalArgs.RunLevel = 'Highest' }
+$principal = New-ScheduledTaskPrincipal @principalArgs
 try {
     $registered = Register-ScheduledTask -TaskName 'Nexus-AutoUpdate-Install' -Action $action -Principal $principal -Force -ErrorAction Stop
     if ($registered.Actions.Count -ne 1 -or $registered.Actions[0].Arguments -ne $arguments) {

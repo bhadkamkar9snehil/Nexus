@@ -30,11 +30,38 @@ public sealed partial class UpdateHost(string root)
 
     public string? NotifiedTag { get; private set; }
 
-    public static string? CurrentVersion() => Registry.CurrentUser.OpenSubKey(UninstallKey)?.GetValue("DisplayVersion") as string;
+    private static RegistryKey? OpenUninstallKey(string? installRoot = null)
+    {
+        RegistryKey? first = null;
+        foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
+        {
+            var key = hive.OpenSubKey(UninstallKey);
+            if (key is null) continue;
+            if (installRoot is not null &&
+                key.GetValue("InstallLocation") is string location &&
+                string.Equals(
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)),
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(installRoot)),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                first?.Dispose();
+                return key;
+            }
+            first ??= key;
+            if (!ReferenceEquals(first, key)) key.Dispose();
+        }
+        return first;
+    }
+
+    public static string? CurrentVersion()
+    {
+        using var key = OpenUninstallKey();
+        return key?.GetValue("DisplayVersion") as string;
+    }
 
     private bool IsInstalledHere()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(UninstallKey);
+        using var key = OpenUninstallKey(_root);
         return key?.GetValue("InstallLocation") is string location && string.Equals(
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(_root)), StringComparison.OrdinalIgnoreCase);

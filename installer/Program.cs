@@ -27,8 +27,8 @@ internal static class Program
             else if (operation is not ("provision" or "repair") || args.Skip(2).Any(option => option is not ("--browser" or "--search")))
                 throw new ArgumentException("Unknown installer operation or option.");
 
-            using var uninstall = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1");
-            var root = SetupPath.ValidateDestination(args[1], uninstall?.GetValue("InstallLocation") as string);
+            var installedLocation = GetInstalledLocation(args[1]);
+            var root = SetupPath.ValidateDestination(args[1], installedLocation);
             canElevate = operation == "preflight";
             Directory.CreateDirectory(Logs);
             using var setupLock = new FileStream(Path.Combine(Logs, "setup.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -40,7 +40,7 @@ internal static class Program
                 if (operation == "repair") await monitor.TakeOverAsync(stopClients: false);
                 await monitor.ProvisionAsync();
                 await ConfigureOptionalAsync(root, args);
-                CleanupUpdateArtifacts();
+                CleanupUpdateArtifacts(root);
                 Log("Nexus setup completed. Managed monitor verified.");
             }
             return 0;
@@ -83,8 +83,16 @@ internal static class Program
             throw new InvalidDataException("Bundled Node dependencies are missing. Download a fresh installer.");
     }
 
-    private static void CleanupUpdateArtifacts()
+    private static void CleanupUpdateArtifacts(string root)
     {
+        try
+        {
+            foreach (var stale in Directory.GetFiles(root, "*.nexus-old.*", SearchOption.AllDirectories))
+            {
+                try { File.Delete(stale); } catch { }
+            }
+        }
+        catch { }
         foreach (var dir in new[] { Path.Combine(Path.GetTempPath(), "Nexus-update"), Path.Combine(Logs, "staged") })
         {
             if (!Directory.Exists(dir)) continue;
@@ -212,11 +220,54 @@ internal static class Program
         }
     }
 
-    private static string? FindAgent(string name) =>
-        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+    private static string? GetInstalledLocation(string destination)
+    {
+        const string subkey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1";
+        string? first = null;
+        foreach (var hive in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
+        {
+            using var key = hive.OpenSubKey(subkey);
+            if (key?.GetValue("InstallLocation") is not string location || string.IsNullOrWhiteSpace(location)) continue;
+            if (Path.IsPathFullyQualified(location) && Path.IsPathFullyQualified(destination) &&
+                SetupPath.Normalize(location).Equals(SetupPath.Normalize(destination), StringComparison.OrdinalIgnoreCase))
+                return location;
+            first ??= location;
+        }
+        return first;
+    }
+
+    private static string? FindAgent(string name)
+    {
+        var candidate = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
             .Where(path => Path.IsPathFullyQualified(path))
             .SelectMany(path => new[] { Path.Combine(path, name + ".exe"), Path.Combine(path, name + ".cmd") })
             .FirstOrDefault(File.Exists);
+        if (candidate is null) return null;
+        return ResolveAgentTarget(candidate, name);
+    }
+
+    private static string ResolveAgentTarget(string candidate, string name)
+    {
+        try
+        {
+            var resolved = File.ResolveLinkTarget(candidate, returnFinalTarget: true)?.FullName;
+            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved)) return resolved;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        if (candidate.Contains(@"\WinGet\Links\", StringComparison.OrdinalIgnoreCase) &&
+            candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var packages = Path.Combine(Local, "Microsoft", "WinGet", "Packages");
+            if (Directory.Exists(packages))
+            {
+                var match = Directory.EnumerateFiles(packages, name + ".exe", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                if (match is not null) return match;
+            }
+        }
+        return candidate;
+    }
 
     private static async Task<string> Require(string command, string[] args)
     {
@@ -227,7 +278,8 @@ internal static class Program
 
     private static async Task<(int ExitCode, string Output)> Run(string command, string[] args)
     {
-        var info = new ProcessStartInfo(command) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        var workingDir = Directory.Exists(Profile) ? Profile : Path.GetTempPath();
+        var info = new ProcessStartInfo(command) { WorkingDirectory = workingDir, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         if (command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Append(command).Any(value => value.IndexOfAny(['"', '%', '!', '\r', '\n']) >= 0))

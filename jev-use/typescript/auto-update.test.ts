@@ -105,3 +105,34 @@ test('a denied schedule never starts the existing updater task', { skip: process
   assert.match(result.stderr, /simulated access denied/);
   assert.doesNotMatch(result.stdout, /STALE_TASK_STARTED/);
 });
+
+test('scheduling does not request Highest run level when caller is not elevated', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nexus-update-runlevel-'));
+  const staged = join(dir, 'Nexus', 'staged');
+  await mkdir(staged, { recursive: true });
+  const bytes = 'verified installer fixture';
+  const filename = 'Nexus-Harness-Setup-1.17.0-windows-x64.exe';
+  const checksum = createHash('sha256').update(bytes).digest('hex');
+  await writeFile(join(staged, filename), bytes);
+  const fixture = release('v1.17.0');
+  fixture.description = fixture.description.replace(sha, checksum);
+  await writeFile(join(dir, 'releases.json'), JSON.stringify([fixture]));
+  await writeFile(join(dir, 'runs.json'), '[]');
+  const wrapper = join(dir, 'wrapper.ps1');
+  await writeFile(wrapper, [
+    `function Get-FileHash { [pscustomobject]@{ Hash = '${checksum}' } }`,
+    'function New-ScheduledTaskAction { [pscustomobject]@{ Arguments = $args[3] } }',
+    'function New-ScheduledTaskPrincipal { param([string]$UserId, [string]$LogonType, [string]$RunLevel) [Console]::Out.WriteLine("RUNLEVEL=$RunLevel"); [pscustomobject]@{ RunLevel = $RunLevel } }',
+    'function Get-Process {}',
+    'function Register-ScheduledTask { param($TaskName, $Action, $Principal) [pscustomobject]@{ Actions = @([pscustomobject]@{ Arguments = $Action.Arguments }) } }',
+    'function Start-ScheduledTask {}',
+    "& $env:NEXUS_TEST_UPDATER -ReleasesJson (Join-Path $env:LOCALAPPDATA 'releases.json') -RunsJson (Join-Path $env:LOCALAPPDATA 'runs.json') -InstalledVersion '1.16.1' -IdleSeconds 900",
+    'exit $LASTEXITCODE',
+  ].join('\n'));
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper], {
+    encoding: 'utf8', env: { ...process.env, LOCALAPPDATA: dir, NEXUS_TEST_UPDATER: script },
+  });
+  assert.equal(result.status, 0);
+  const isAdmin = spawnSync('powershell.exe', ['-NoProfile', '-Command', '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'], { encoding: 'utf8' }).stdout.trim() === 'True';
+  assert.match(result.stdout, isAdmin ? /RUNLEVEL=Highest/ : /RUNLEVEL=\r?\n/);
+});

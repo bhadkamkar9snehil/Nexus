@@ -34,7 +34,7 @@ Name: "optionalbrowser"; Description: "Install Google Chrome if no supported bro
 Name: "optionalsearch"; Description: "Install UFFS search service (may request administrator approval)"; GroupDescription: "Optional setup:"; Flags: unchecked
 
 [Files]
-Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "desktop,installer,.git*"
+Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace; Excludes: "desktop,installer,.git*"; BeforeInstall: ReleaseFileLock
 Source: "{#PayloadDir}\Nexus.Setup.exe"; Flags: dontcopy
 
 [InstallDelete]
@@ -63,6 +63,24 @@ var Provisioned: Boolean;
 function SetupCompleted: Boolean;
 begin
   Result := Provisioned;
+end;
+
+procedure ReleaseFileLock;
+var Target, Backup, Ext: String; ResultCode: Integer;
+begin
+  Target := ExpandConstant(CurrentFileName);
+  if not FileExists(Target) then Exit;
+  Ext := Lowercase(ExtractFileExt(Target));
+  if (Ext <> '.dll') and (Ext <> '.exe') and (Ext <> '.node') then Exit;
+  if DeleteFile(Target) then Exit;
+  Backup := Target + '.nexus-old.' + GetDateTimeString('yyyymmddhhnnss', #0, #0);
+  if not RenameFile(Target, Backup) then begin
+    Exec(ExpandConstant('{tmp}\Nexus.Setup.exe'),
+      'preflight "' + ExpandConstant('{app}') + '" "' + ExpandConstant('{tmp}\nexus-preflight-lock.txt') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    if not DeleteFile(Target) then
+      RenameFile(Target, Backup);
+  end;
 end;
 
 // A copied application is not a successful installation until setup passes.
@@ -113,6 +131,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer; Params: String;
 begin
+  if CurStep = ssInstall then begin
+    Params := 'preflight "' + ExpandConstant('{app}') + '" "' + ExpandConstant('{tmp}\nexus-preflight-install.txt') + '"';
+    Exec(ExpandConstant('{tmp}\Nexus.Setup.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
   if CurStep = ssPostInstall then begin
     WizardForm.StatusLabel.Caption := 'Starting Nexus and verifying the monitor...';
     Params := 'provision "' + ExpandConstant('{app}') + '"';

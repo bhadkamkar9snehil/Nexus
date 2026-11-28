@@ -248,12 +248,28 @@ internal sealed class MonitorInstallation(string root, string logDirectory)
 
     private static bool Matches(string name, string? executable, string[] arguments, string directory, bool stopClients)
     {
+        if (stopClients && !string.IsNullOrWhiteSpace(executable) && IsUnderDirectory(executable, Path.Combine(directory, "runtime")))
+            return true;
         if (name.Equals("Nexus.Desktop.exe", StringComparison.OrdinalIgnoreCase))
             return stopClients && IsFile(executable, directory, "Nexus.Desktop.exe");
         if (name.Equals("node.exe", StringComparison.OrdinalIgnoreCase))
             return arguments.Length > 1 && (IsFile(arguments[1], directory, "monitor.mjs") ||
                 (stopClients && IsFile(arguments[1], directory, @"jev-use\start.mjs")));
         return IsFile(MonitorScript(name, arguments), directory, "Monitor.ps1");
+    }
+
+    private static bool IsUnderDirectory(string path, string directory)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var fullDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(fullDir, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static string? MonitorScript(string name, string[] args)
