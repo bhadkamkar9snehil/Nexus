@@ -76,6 +76,12 @@ Assert (-not (Test-NexusProcessCommand $process @($oldRoot))) 'unrelated desktop
 $process.Name = 'powershell.exe'
 $process.CommandLine = 'powershell.exe -File "C:\Other\Monitor.ps1" Run'
 Assert (-not (Test-NexusProcessCommand $process @($oldRoot))) 'unrelated PowerShell host must survive'
+$process.Name = 'uffsd.exe'
+$process.CommandLine = $null
+$process.ExecutablePath = Join-Path $oldRoot 'runtime\uffsd.exe'
+Assert (Test-NexusProcessCommand $process @($oldRoot)) 'a search daemon running from the install runtime must be stopped before its file is replaced'
+$process.ExecutablePath = 'C:\Tools\uffs\uffsd.exe'
+Assert (-not (Test-NexusProcessCommand $process @($oldRoot))) 'a search daemon installed elsewhere must survive'
 $self = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID)
 Assert ((Get-NexusProcessOwnerSid $self) -eq $currentSid) 'Win32_Process GetOwner must recognize this PowerShell process'
 $blocker = Get-NexusPortBlockerDescription @([pscustomobject]@{ OwningProcess = $PID })

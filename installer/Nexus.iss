@@ -22,7 +22,6 @@ UninstallDisplayIcon={app}\Nexus.Desktop.exe
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=commandline
 WizardStyle=modern
 Compression=zip/1
 SolidCompression=no
@@ -127,6 +126,12 @@ begin
   end;
 end;
 
+procedure RemoveOldUpdateTask(Name: String);
+var ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /F /TN "' + Name + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer; Params: String;
 begin
@@ -135,6 +140,11 @@ begin
     Exec(ExpandConstant('{tmp}\Nexus.Setup.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
   if CurStep = ssPostInstall then begin
+    // Leftovers of the former two-kinds-of-install updater. Setup is elevated here, so it can remove them.
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E41F1F1C-57B8-49BB-B11D-79DC2A9A0622}_is1');
+    RemoveOldUpdateTask('Nexus-AutoUpdate-Install');
+    RemoveOldUpdateTask('Nexus-Update-' + GetUserNameString + '-admin');
+    RemoveOldUpdateTask('Nexus-Update-' + GetUserNameString + '-user');
     WizardForm.StatusLabel.Caption := 'Starting Nexus and verifying the monitor...';
     Params := 'provision "' + ExpandConstant('{app}') + '"';
     if not WizardSilent then begin
@@ -149,7 +159,8 @@ begin
     else begin
       Provisioned := True;
       if WizardSilent then
-        Exec(ExpandConstant('{app}\Nexus.Desktop.exe'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
+        // Setup is elevated; the app itself must run with the user's normal rights.
+        ExecAsOriginalUser(ExpandConstant('{app}\Nexus.Desktop.exe'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
     end;
   end;
 end;

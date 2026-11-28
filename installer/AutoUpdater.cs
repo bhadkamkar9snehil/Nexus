@@ -52,7 +52,6 @@ internal static partial class AutoUpdater
         var installMode = false;
         var dryRun = false;
         var noRecovery = false;
-        var currentUser = false;
         string? file = null;
         string? version = null;
         string? releasesJson = null;
@@ -67,7 +66,7 @@ internal static partial class AutoUpdater
                 case "--install": installMode = true; break;
                 case "--dry-run": dryRun = true; break;
                 case "--no-recovery": noRecovery = true; break;
-                case "--current-user": currentUser = true; break;
+                case "--current-user": break; // accepted from an older scheduled task; there is only one kind of install
                 case "--file" when i + 1 < args.Length: file = args[++i]; break;
                 case "--version" when i + 1 < args.Length: version = args[++i]; break;
                 case "--releases-json" when i + 1 < args.Length: releasesJson = args[++i]; break;
@@ -83,7 +82,7 @@ internal static partial class AutoUpdater
         var root = SetupPath.Normalize(AppContext.BaseDirectory);
 
         if (installMode)
-            return await ExecuteInstallAsync(root, logsFolder, logFile, file, version, noRecovery, currentUser);
+            return await ExecuteInstallAsync(root, logsFolder, logFile, file, version, noRecovery);
 
         return await CheckAndScheduleAsync(root, logsFolder, logFile, dryRun, releasesJson, runsJson, installedVersion, idleSeconds);
     }
@@ -375,7 +374,14 @@ internal static partial class AutoUpdater
             var info = new LastInputInfo { cbSize = (uint)Marshal.SizeOf<LastInputInfo>() };
             idle = GetLastInputInfo(ref info) ? Math.Max(0, unchecked(Environment.TickCount - (int)info.dwTime) / 1000) : 0;
         }
-        if (idle < 300) return Done(dryRun, "wait", $"the owner is active (idle {idle}s)", new JsonObject { ["latest"] = latest.Tag });
+        if (UacWillAsk())
+        {
+            if (idle > 60) return Done(dryRun, "wait", "waiting for the owner, who must approve the administrator request", new JsonObject { ["latest"] = latest.Tag });
+        }
+        else if (idle < 300) return Done(dryRun, "wait", $"the owner is active (idle {idle}s)", new JsonObject { ["latest"] = latest.Tag });
+
+        if (FailedRecently(logsFolder, latest.Tag))
+            return Done(dryRun, "wait", "this version failed or was declined within the last day; use Update now to retry", new JsonObject { ["latest"] = latest.Tag });
 
         if (Process.GetProcesses().Any(p => p.ProcessName.StartsWith("Nexus-Harness-Setup", StringComparison.OrdinalIgnoreCase)))
             return Done(dryRun, "wait", "an installer is already running");
@@ -391,12 +397,11 @@ internal static partial class AutoUpdater
                 File.Copy(f, Path.Combine(backupDir, Path.GetFileName(f)), overwrite: true);
         }
 
-        var elevated = IsElevated();
         var setupExe = Path.Combine(root, "Nexus.Setup.exe");
-        var arguments = $"auto-update --install --file \"{staged}\" --version {latest.Tag}" + (elevated ? "" : " --current-user");
+        var arguments = $"auto-update --install --file \"{staged}\" --version {latest.Tag}";
         try
         {
-            ScheduleAndStartInstallTask(setupExe, arguments, root, elevated);
+            ScheduleAndStartInstallTask(setupExe, arguments, root);
         }
         catch (Exception ex)
         {
@@ -407,10 +412,30 @@ internal static partial class AutoUpdater
         return 0;
     }
 
-    // Not the old shared "Nexus-AutoUpdate-Install": a copy owned by Administrators made every later update fail with "Access is denied".
-    private static string InstallTaskName(bool elevated) => $"Nexus-Update-{Environment.UserName}-{(elevated ? "admin" : "user")}";
+    // Always created and run with normal rights, so the monitor can always replace it. Only Setup itself is elevated.
+    private const string InstallTaskName = "Nexus-Update";
 
-    private static void ScheduleAndStartInstallTask(string exePath, string arguments, string workingDir, bool elevated)
+    /// <summary>False when Windows grants this process administrator rights without asking anyone.</summary>
+    private static bool UacWillAsk()
+    {
+        if (IsElevated()) return false;
+        using var policy = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System");
+        if (policy?.GetValue("EnableLUA") is int lua && lua == 0) return false;
+        return !(policy?.GetValue("ConsentPromptBehaviorAdmin") is int consent && consent == 0);
+    }
+
+    private static bool FailedRecently(string logsFolder, string tag)
+    {
+        try
+        {
+            var receipt = JsonNode.Parse(File.ReadAllText(Path.Combine(logsFolder, "last-install-receipt.json")));
+            return receipt?["version"]?.GetValue<string>() == tag && receipt["exitCode"]?.GetValue<int>() != 0 &&
+                DateTimeOffset.UtcNow - DateTimeOffset.Parse(receipt["recordedAtUtc"]!.GetValue<string>()) < TimeSpan.FromHours(24);
+        }
+        catch { return false; }
+    }
+
+    private static void ScheduleAndStartInstallTask(string exePath, string arguments, string workingDir)
     {
         using var identity = WindowsIdentity.GetCurrent();
         dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!)!;
@@ -419,7 +444,6 @@ internal static partial class AutoUpdater
         dynamic definition = service.NewTask(0);
         definition.Principal.UserId = identity.Name;
         definition.Principal.LogonType = 3; // Interactive
-        if (elevated) definition.Principal.RunLevel = 1; // Highest
         definition.Settings.DisallowStartIfOnBatteries = false;
         definition.Settings.StopIfGoingOnBatteries = false;
         definition.Settings.ExecutionTimeLimit = "PT30M";
@@ -427,13 +451,12 @@ internal static partial class AutoUpdater
         action.Path = exePath;
         action.Arguments = arguments;
         action.WorkingDirectory = workingDir;
-        dynamic task = folder.RegisterTaskDefinition(InstallTaskName(elevated), definition, 6, identity.Name, null, 3, null);
+        dynamic task = folder.RegisterTaskDefinition(InstallTaskName, definition, 6, identity.Name, null, 3, null);
         task.Run(null);
     }
 
-    private static async Task<int> ExecuteInstallAsync(string root, string logsFolder, string logFile, string? file, string? version, bool noRecovery, bool currentUser)
+    private static async Task<int> ExecuteInstallAsync(string root, string logsFolder, string logFile, string? file, string? version, bool noRecovery)
     {
-        var taskName = InstallTaskName(IsElevated());
         var safeVersion = version is not null && SafeVersionRegex().IsMatch(version) ? version.TrimStart('v') : "unknown";
         var installerLog = Path.Combine(logsFolder, $"installer-{safeVersion}-{DateTime.Now:yyyyMMdd-HHmmss}.log");
         var resultCode = 1;
@@ -448,15 +471,14 @@ internal static partial class AutoUpdater
                 throw new InvalidOperationException("Invalid target Nexus version.");
 
             Log(logFile, noRecovery ? "Installer rollback disabled by explicit command-line option." : $"Installing {version}; installer diagnostic log: {installerLog}");
-            var elevated = IsElevated();
+            // One kind of install: Setup requires administrator rights and raises the UAC request itself.
             var start = new ProcessStartInfo(file)
             {
-                UseShellExecute = false,
+                UseShellExecute = true,
                 WorkingDirectory = root,
             };
             foreach (var arg in new[] { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", $"/LOG={installerLog}" })
                 start.ArgumentList.Add(arg);
-            if (currentUser || !elevated) start.ArgumentList.Add("/CURRENTUSER");
 
             using var proc = Process.Start(start) ?? throw new InvalidOperationException("Could not start the Nexus installer.");
             await proc.WaitForExitAsync();
@@ -510,7 +532,7 @@ internal static partial class AutoUpdater
             {
                 dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!)!;
                 service.Connect();
-                service.GetFolder(@"\").DeleteTask(taskName, 0);
+                service.GetFolder(@"\").DeleteTask(InstallTaskName, 0);
             }
             catch { }
         }

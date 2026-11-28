@@ -142,7 +142,6 @@ if ($Install) {
         Write-Log "Installing $Version; installer diagnostic log: $installerLog"
         $isElevatedInstall = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', ('/LOG="' + $installerLog + '"'))
-        if ($CurrentUser -or -not $isElevatedInstall) { $arguments += '/CURRENTUSER' }
         $installer = Start-Process -FilePath $File -ArgumentList $arguments -Wait -PassThru
         $installerExitCode = [int]$installer.ExitCode
         $resultCode = $installerExitCode

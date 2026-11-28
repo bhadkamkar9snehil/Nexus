@@ -59,6 +59,10 @@ function Get-NexusProcessOwnerSid($process) {
     } catch { return $null }
 }
 
+# Helpers that run from the install folder (the search daemon outlives the process that started it) keep their files
+# locked. They match by exact path under <root>\runtime only, never by name alone.
+$NexusRuntimeHelpers = @('cua-driver.exe','cua-driver-uia.exe','uffs.exe','uffsd.exe','uffs-broker.exe','rg.exe')
+
 function Test-NexusProcessCommand($process, [string[]]$roots) {
     $name = [string]$process.Name
     $monitorScript = $null
@@ -71,6 +75,7 @@ function Test-NexusProcessCommand($process, [string[]]$roots) {
         $monitorScript = Get-NexusMonitorScript $arguments
     }
     foreach ($root in $roots) {
+        if ($name -in $NexusRuntimeHelpers -and $process.ExecutablePath -ieq (Join-Path $root "runtime\$name")) { return $true }
         if ($name -ieq 'Nexus.Desktop.exe' -and $process.ExecutablePath -ieq (Join-Path $root 'Nexus.Desktop.exe')) { return $true }
         if ($name -ieq 'node.exe' -and $nodeScript -in @((Join-Path $root 'monitor.mjs'), (Join-Path $root 'jev-use\start.mjs'))) { return $true }
         if ($monitorScript -and $monitorScript -ieq (Join-Path $root 'Monitor.ps1')) { return $true }
@@ -195,7 +200,7 @@ $roots = @($roots | Select-Object -Unique)
 
 # Validate every selected process before changing any task or process.
 $processes = @(Get-CimInstance Win32_Process |
-    Where-Object { $_.Name -in @('node.exe','powershell.exe','pwsh.exe','Nexus.Desktop.exe') })
+    Where-Object { $_.Name -in (@('node.exe','powershell.exe','pwsh.exe','Nexus.Desktop.exe') + $NexusRuntimeHelpers) })
 $owned = @($processes | Where-Object {
     Test-NexusProcessCommand $_ $roots
 })
