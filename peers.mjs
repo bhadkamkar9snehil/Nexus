@@ -5,6 +5,7 @@ import { beginPeerSpan, traceId, validTrace, validSpan, validMessage } from './p
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { maskAddress, peerFetch } from './relay-client.mjs';
 
 const kinds = ['mail', 'chat'];
 const maxBody = 64 * 1024;
@@ -19,7 +20,7 @@ async function save(root, config) {
   await mkdir(folder(root), { recursive: true });
   await writeFile(file(root, 'peers.json'), JSON.stringify(config, null, 2));
 }
-const clean = ({ name, url, enabled, allow, outbound, own, responder }) => ({ name, url, enabled, allow, paired: Boolean(outbound), own: Boolean(own), responder });
+const clean = ({ name, url, enabled, allow, outbound, own, responder }) => ({ name, url: maskAddress(url), enabled, allow, paired: Boolean(outbound), own: Boolean(own), responder });
 
 /** The name this installation introduces itself with: the computer name unless `self` is set in peers.json. */
 export async function selfName(root) {
@@ -204,11 +205,11 @@ export async function sendMessage(root, { to, kind = 'mail', subject, body, hop,
   if (!peer.outbound) throw new Error('Pairing is incomplete: set the token the peer gave you (nexus_peers set outbound_token)');
   const self = (await load(root)).self ?? 'nexus';
   stage='transport_error';
-  const response = await fetcher(peer.url + '/peer/message', {
+  const response = await peerFetch(peer.url + '/peer/message', {
     method: 'POST', signal: AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + peer.outbound },
     body: JSON.stringify({ kind, subject, body, trace:span.traceId,parentSpanId:span.spanId,messageId, ...(hop === undefined ? {} : { hop }) }),
-  });
+  }, fetcher);
   httpStatus=response.status;
   if (!response.ok) {stage='refused';throw new Error(`Peer refused the message (${response.status})`);}
   stage='storage_error';

@@ -7,6 +7,7 @@ import { runtimeStatus } from './runtime-status.mjs';
 import { events, startWebhook, webhookPort } from './webhook.mjs';
 import { startEventDelivery } from './events-webhooks.mjs';
 import { startPeerDiscovery } from './peers-auto.mjs';
+import { startRelay } from './relay-client.mjs';
 import { startAutoUpdate } from './auto-update.mjs';
 import { startVisualWatches } from './visual-watch.mjs';
 import { respondTo } from './agent-responder.mjs';
@@ -172,5 +173,6 @@ createServer(async (req, res) => {
   startEventDelivery(import.meta.dirname, { log: console.error });
   if(managed) startVisualWatches(import.meta.dirname,{log:console.error});
   startPeerDiscovery(import.meta.dirname, { log: console.log });
+  startRelay(import.meta.dirname, { port: Number(process.env.NEXUS_WEBHOOK_PORT || 8770), log: console.log });
   startAutoUpdate(import.meta.dirname, { log: console.error });
 });

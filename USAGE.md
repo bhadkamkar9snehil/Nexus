@@ -138,6 +138,9 @@ Device status uses Tailscale presence when the saved address matches a Tailscale
 
 **Other people (teammates) and computers outside the tailnet pair with a code**, like AnyDesk: *Generate code* shows `nexus-...` (it carries this computer's name and addresses; single use, valid ten minutes), the other person pastes it under *Enter a code*, and both sides are paired. The same exists as `nexus_peers`: `add` / `set` with `outbound_token` for the manual two-step flow, and `list`, `set` (`enabled`, `allow_mail`, `allow_chat`) and `remove`. Switched-off or denied peers are refused in both directions; tokens live in `secrets\peers.json` and are never listed.
 
+**Over the internet (no VPN or open port):** run `runtime
+ode.exe relay-client.mjs setup https://<your relay>` once on each computer and restart the monitor; both sides need it. Pairing codes then also carry a relay address. `relay/worker.mjs` is the Cloudflare Worker (deploy: `npx wrangler@4 deploy` in `relay/`; free plan, only the relay owner needs an account). Each computer keeps an outbound WebSocket; requests are sealed with AES-256-GCM using a key that travels only in the pairing code, so treat codes and `secretselay.json` as secrets. The relay stores nothing: an offline computer refuses delivery. Only `/peer/message` and `/peer/pair` are reachable.
+
 **Firewall:** when Nexus runs as administrator it creates the inbound rule for port 8770 ("Nexus peers") by itself if no enabled Nexus rule exists. Otherwise the page shows "Port 8770 blocked" with an *Open port* button that works only when Nexus is elevated.
 
 **Messages:** `nexus_mail` `send` (kind `chat` or `mail`) posts straight to the other computer. There, an agent that calls `nexus_mail` `wait` is released within about a second (the call blocks up to `timeout_ms`, default 30 s, max 55 s; loop it to stay listening), and the same arrival is a `peer.message` event for `nexus_events` or the MCP Events extension (poll, push or webhook).
