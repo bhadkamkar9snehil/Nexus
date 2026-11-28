@@ -13,7 +13,9 @@ $temp = Join-Path $folder ([guid]::NewGuid().ToString() + '.xml')
 try {
     $key | Export-Clixml -LiteralPath $temp
     if (Test-Path -LiteralPath $target) {
-        [IO.File]::Replace($temp, $target, $null)
+        $backup = "$target.$([guid]::NewGuid().ToString('N')).bak"
+        [IO.File]::Replace($temp, $target, $backup)
+        if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
     } else {
         [IO.File]::Move($temp, $target)
     }

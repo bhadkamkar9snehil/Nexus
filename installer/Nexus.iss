@@ -55,7 +55,6 @@ Root: HKCU; Subkey: "Software\Classes\nexus-harness\shell\open\command"; ValueTy
 
 [Run]
 Filename: "{app}\Nexus.Desktop.exe"; Description: "Open Nexus Harness"; Flags: nowait postinstall skipifsilent; Check: SetupCompleted
-Filename: "{app}\Nexus.Desktop.exe"; Flags: nowait skipifnotsilent; Check: SetupCompleted
 
 [Code]
 var Provisioned: Boolean;
@@ -147,6 +146,10 @@ begin
       SuppressibleMsgBox('Nexus files were copied, but setup did not start. Retry with Nexus Settings > Set up or repair. Check %LOCALAPPDATA%\Nexus\setup.log. The installer reports failure.', mbError, MB_OK, IDOK)
     else if ResultCode <> 0 then
       SuppressibleMsgBox('Nexus files were copied, but setup failed. Close Nexus and select Settings > Set up or repair. Check %LOCALAPPDATA%\Nexus\setup.log. Your data remains intact. The installer reports failure.', mbError, MB_OK, IDOK)
-    else Provisioned := True;
+    else begin
+      Provisioned := True;
+      if WizardSilent then
+        Exec(ExpandConstant('{app}\Nexus.Desktop.exe'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
+    end;
   end;
 end;

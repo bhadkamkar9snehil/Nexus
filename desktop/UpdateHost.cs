@@ -32,25 +32,38 @@ public sealed partial class UpdateHost(string root)
 
     private static RegistryKey? OpenUninstallKey(string? installRoot = null)
     {
-        RegistryKey? first = null;
+        RegistryKey? best = null;
+        Version? bestVersion = null;
+        var bestMatchesRoot = false;
         foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
         {
             var key = hive.OpenSubKey(UninstallKey);
             if (key is null) continue;
-            if (installRoot is not null &&
+            var matchesRoot = installRoot is not null &&
                 key.GetValue("InstallLocation") is string location &&
                 string.Equals(
                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)),
                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(installRoot)),
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase);
+            var version = Version.TryParse((key.GetValue("DisplayVersion") as string)?.Split('-')[0], out var parsed)
+                ? parsed
+                : new Version(0, 0, 0);
+            var take = best is null
+                || (matchesRoot && !bestMatchesRoot)
+                || (matchesRoot == bestMatchesRoot && version > bestVersion);
+            if (take)
             {
-                first?.Dispose();
-                return key;
+                best?.Dispose();
+                best = key;
+                bestVersion = version;
+                bestMatchesRoot = matchesRoot;
             }
-            first ??= key;
-            if (!ReferenceEquals(first, key)) key.Dispose();
+            else
+            {
+                key.Dispose();
+            }
         }
-        return first;
+        return best;
     }
 
     public static string? CurrentVersion()
